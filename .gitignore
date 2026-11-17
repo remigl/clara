@@ -8,3 +8,15 @@ pipeline/cache/
 pipeline/packs/
 pipeline/results/
 *.part
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/pubspec.lock
+app/android/
+app/assets/model/
+app/assets/packs/
+app/*.iml
+app/.idea/
+ci.log
+clara-*.apk

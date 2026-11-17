@@ -1,0 +1,89 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache des données SMK
+        uses: actions/cache@v4
+        with:
+          path: pipeline/cache/images
+          key: smk-images-${{ github.run_id }}
+          restore-keys: smk-images-
+
+      - name: Modèle DINOv2 et pack SMK
+        working-directory: pipeline
+        run: |
+          set -o pipefail
+          pip install -q -r requirements.txt
+          python -m clara_p0 download-model --variant dinov2-small-int8 2>&1 | tee -a ../ci.log
+          python -m clara_p0 build-smk --model models/dinov2-small-int8.onnx --projection none --pooling cls 2>&1 | tee -a ../ci.log
+
+      - name: Assets de l'app
+        run: |
+          set -o pipefail
+          bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1 pipeline/models/dinov2-small-int8.onnx 2>&1 | tee -a ci.log
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Projet Android
+        working-directory: app
+        run: |
+          set -o pipefail
+          flutter --version 2>&1 | tee -a ../ci.log
+          bash tool/configure_android.sh 2>&1 | tee -a ../ci.log
+
+      - name: Dépendances et analyse
+        working-directory: app
+        run: |
+          set -o pipefail
+          flutter pub get 2>&1 | tee -a ../ci.log
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee -a ../ci.log
+
+      - name: Build APK
+        working-directory: app
+        run: |
+          set -o pipefail
+          flutter build apk --release --target-platform android-arm64 2>&1 | tee -a ../ci.log
+          cp build/app/outputs/flutter-apk/app-release.apk ../clara-${{ github.ref_name }}.apk
+          ls -lh ../clara-*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clara-apk
+          path: clara-*.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: clara-*.apk
+          body_path: app/RELEASE_NOTES.md
+
+      - name: Journal en annotations
+        if: failure()
+        run: python3 .github/scripts/annotate_log.py ci.log
