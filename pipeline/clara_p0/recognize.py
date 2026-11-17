@@ -87,6 +87,67 @@ class Calibrator:
         return cls(np.array(d["w"]), d["b"], np.array(d["mu"]), np.array(d["sd"]))
 
 
+class DecisionRule:
+    """Décision fondée d'abord sur la vérification géométrique (P0 : meilleure que la régression logistique).
+
+    score = inliers du meilleur candidat + cosinus (départage). Deux seuils :
+      score >= t_auto    -> confiance >= 0.90 : ajout automatique
+      score >= t_confirm -> confiance 0.50..0.90 : « C'est bien celle-ci ? »
+      sinon              -> confiance < 0.50 : non reconnue
+    `fit` choisit les seuils sur des requêtes étiquetées : t_auto au taux d'erreur visé (1 %),
+    t_confirm à 10 % (l'utilisateur vérifie lui-même).
+    """
+
+    def __init__(self, t_auto: float = 25.0, t_confirm: float = 12.0):
+        self.t_auto = float(t_auto)
+        self.t_confirm = float(min(t_confirm, t_auto))
+
+    @staticmethod
+    def score(f: dict[str, float]) -> float:
+        return max(f["inl1"], 0.0) + f["cos1"]
+
+    def predict(self, f: dict[str, float]) -> float:
+        x, ta, tc = self.score(f), self.t_auto, self.t_confirm
+        if x >= ta:
+            return 0.9 + 0.1 * min(1.0, (x - ta) / max(ta, 1.0))
+        if x >= tc:
+            return 0.5 + 0.4 * (x - tc) / max(ta - tc, 1e-6)
+        return 0.5 * max(x, 0.0) / max(tc, 1e-6)
+
+    @staticmethod
+    def _threshold(scores, ok, far: float, floor: float) -> float | None:
+        order = np.argsort(-np.asarray(scores), kind="stable")
+        s = np.asarray(scores)[order]
+        c = np.asarray(ok, bool)[order]
+        k = np.arange(1, len(c) + 1)
+        good = np.where(np.cumsum(~c) <= far * k)[0]
+        if len(good) == 0:
+            return None
+        return max(float(s[good.max()]), floor)
+
+    @classmethod
+    def fit(cls, feats: list[dict[str, float]], correct: list[bool], far_auto: float = 0.01,
+            far_confirm: float = 0.10, floor_auto: float = 12.0, floor_confirm: float = 6.0) -> "DecisionRule":
+        sc = [cls.score(f) for f in feats]
+        default = cls()
+        ta = cls._threshold(sc, correct, far_auto, floor_auto)
+        tc = cls._threshold(sc, correct, far_confirm, floor_confirm)
+        return cls(ta if ta is not None else default.t_auto, tc if tc is not None else default.t_confirm)
+
+    def save(self, path):
+        Path(path).write_text(json.dumps({"type": "rule", "t_auto": self.t_auto, "t_confirm": self.t_confirm}, indent=2))
+
+    def __repr__(self):
+        return f"auto >= {self.t_auto:.0f} inliers, confirmation >= {self.t_confirm:.0f}"
+
+
+def load_decision(path):
+    d = json.loads(Path(path).read_text())
+    if d.get("type") == "rule":
+        return DecisionRule(d["t_auto"], d["t_confirm"])
+    return Calibrator.load(path)
+
+
 class Recognizer:
     def __init__(self, embedder: Embedder, index: FlatIndex, keypoints: KeypointStore | None = None,
                  verifier: GeometricVerifier | None = None, calibrator: Calibrator | None = None,
@@ -95,9 +156,10 @@ class Recognizer:
         self.index = index
         self.keypoints = keypoints
         self.verifier = verifier or (GeometricVerifier() if keypoints is not None else None)
-        self.calibrator = calibrator or Calibrator()
         self.k = k
         self.rerank = rerank and keypoints is not None
+        # avec vérification géométrique : règle sur les inliers ; sans : régression sur le cosinus
+        self.calibrator = calibrator or (DecisionRule() if self.rerank else Calibrator())
 
     def recognize(self, img: np.ndarray) -> Result:
         t0 = time.perf_counter()

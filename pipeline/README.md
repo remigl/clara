@@ -45,12 +45,21 @@ python -m clara_p0 eval-met                           # complet -> results/met.j
 - Le rapport compare **embedding seul** et **embedding + vérification géométrique + confiance**, avec
   top-1, GAP (la métrique officielle du Met), fausses acceptations, couverture et rejet des objets hors base.
 
-Améliorer avec une projection 256-d (aussi la taille cible dans l'app) :
+Options utiles : `--paintings` (peintures seulement, via l'API ouverte du Met), `--museum-size 2000`
+(recherche dans un musée simulé, la situation réelle de Clara), `--distractors N` (objets hors base).
+
+Projection 256-d (le meilleur réglage du comparatif, et la taille cible dans l'app) :
 
 ```bash
-python -m clara_p0 fit-projection
-python -m clara_p0 eval-met --projection models/projection-256.npz
+python -m clara_p0 fit-projection        # apprise sur la base Met, sans réencoder si le cache existe
 ```
+
+Ensuite, `models/projection-256.npz` est utilisée **automatiquement** par toutes les commandes
+(`--projection none` pour s'en passer). Comparer d'autres réglages : `python -m clara_p0 sweep-met --paintings`.
+
+Réglages par défaut (issus des mesures P0) : empreinte DINOv2 « CLS » + projection 256-d ; décision fondée sur
+le nombre de points concordants de la vérification géométrique (seuils appris : `cache/decision_*.json`,
+réutilisables avec `recognize --calibration`).
 
 Attention : le Met contient tous types d'objets (vases, armures, monnaies…), plus difficiles que des peintures.
 Les chiffres sur des tableaux seront meilleurs.

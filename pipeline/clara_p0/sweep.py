@@ -19,7 +19,7 @@ import numpy as np
 
 from .embed import OnnxDinoEmbedder, Projection, l2n
 from .imageio import read_image
-from .met import MetPaths, balanced_queries, is_painting, met_departments
+from .met import MetPaths, balanced_queries, db_cache_path, is_painting, met_departments
 from .metrics import coverage_at_far, gap
 from .views import query_views
 
@@ -45,10 +45,11 @@ def _query_cache(emb: OnnxDinoEmbedder, mp: MetPaths, qs, cache: Path):
 
 def run(model, root: str, mini: bool = True, limit: int | None = None, distractors: int = 1000, museum_sizes=(0, 2000),
         paintings: bool = False, cache_dir: str = "cache", out: str | None = None, seed: int = 0) -> list[dict]:
-    emb = OnnxDinoEmbedder(model) if isinstance(model, (str, Path)) else model
+    # le comparatif lit les deux moitiés CLS et GeM : il travaille sur l'empreinte « cls+gem »
+    emb = OnnxDinoEmbedder(model, pooling="cls+gem") if isinstance(model, (str, Path)) else model
     mp = MetPaths(root)
     db = mp.database(mini)
-    db_cache = Path(cache_dir) / f"met_{'mini' if mini else 'full'}_{emb.model_id}.npz"
+    db_cache = db_cache_path(cache_dir, mini, emb.raw_id)
     if not db_cache.exists():
         raise SystemExit(f"Cache introuvable : {db_cache}. Lance d'abord `python -m clara_p0 eval-met --limit 50`.")
     d = np.load(db_cache)
@@ -67,7 +68,7 @@ def run(model, root: str, mini: bool = True, limit: int | None = None, distracto
     truth = [t for _, t in qs]
     print(f"Sweep Met : base {len(db)} images / {len(classes)} œuvres ; {len(qs)} requêtes "
           f"({sum(t is not None for t in truth)} connues, {sum(t is None for t in truth)} hors base)")
-    qv, nv = _query_cache(emb, mp, qs, Path(cache_dir) / f"met_queries_test_{emb.model_id}_{len(qs)}_s{seed}.npz")
+    qv, nv = _query_cache(emb, mp, qs, Path(cache_dir) / f"met_queries_test_{emb.raw_id}_{len(qs)}_s{seed}.npz")
     q_parts = {"cls": l2n(qv[..., :h]), "gem": l2n(qv[..., h:])}
 
     subsets = {"toutes œuvres": np.ones(len(qs), bool)}

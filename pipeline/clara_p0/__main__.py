@@ -33,6 +33,7 @@ MET_FILES = {  # nom -> (taille annoncée, dossier d'extraction relatif à root)
     "MET.tar.gz": ("28 Go", "images"),
 }
 DEFAULT_MODEL = Path("models/dinov2-small.onnx")
+DEFAULT_PROJECTION = Path("models/projection-256.npz")
 
 
 def _fetch(url: str, dest: Path):
@@ -67,15 +68,27 @@ def _model_arg(a) -> str:
     return a.model
 
 
+def _projection_arg(a) -> str | None:
+    p = getattr(a, "projection", None)
+    if p in (None, "auto"):
+        return str(DEFAULT_PROJECTION) if DEFAULT_PROJECTION.exists() else None
+    return None if p == "none" else p
+
+
 def _embedder(a):
     from .embed import make_embedder
-    return make_embedder(_model_arg(a), getattr(a, "projection", None))
+    model = _model_arg(a)
+    proj = _projection_arg(a) if model != "thumb" else None
+    emb = make_embedder(model, proj, pooling=getattr(a, "pooling", "cls"))
+    print(f"Modèle : {emb.model_id}" + ("" if proj or model == "thumb" else
+                                         "  (sans projection : lance fit-projection pour la projection 256-d)"))
+    return emb
 
 
 def cmd_selftest(a):
     from . import selftest
     from .embed import make_embedder
-    emb = make_embedder(None if a.model in (None, "thumb") else _model_arg(a), a.projection)
+    emb = make_embedder(None) if a.model in (None, "thumb") else _embedder(a)
     selftest.run(emb, n=a.n, n_distractors=a.distractors, strength=a.strength, rerank=not a.no_rerank)
 
 
@@ -123,20 +136,18 @@ def cmd_sweep_met(a):
 
 
 def cmd_fit_projection(a):
-    import numpy as np
     from .embed import Projection, make_embedder
-    from .met import MetPaths, embed_database
-    emb = make_embedder(_model_arg(a))  # sans projection
+    from .met import MetPaths, db_cache_path, raw_database
+    emb = make_embedder(_model_arg(a), None, pooling=a.pooling)  # empreinte brute, sans projection
     mp = MetPaths(a.root)
     db = mp.database(mini=not a.full)
-    rng = np.random.default_rng(0)
-    sample = [db[i] for i in sorted(rng.choice(len(db), min(a.sample, len(db)), replace=False))]
-    cache = Path(a.cache) / f"projsample_{emb.model_id}_{len(sample)}.npz"
-    idx = embed_database(emb, mp, sample, cache)
-    x = idx.q.astype(np.float32) * idx.scale[:, None]
+    print(f"Apprentissage de la projection sur {len(db)} images du Met ({emb.raw_id})")
+    x = raw_database(emb, mp, db, db_cache_path(a.cache, not a.full, emb.raw_id))
     proj = Projection.fit(x, dim=a.dim, shrinkage=a.shrinkage)
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     proj.save(a.out)
-    print(f"Projection {x.shape[1]} -> {a.dim} enregistrée : {a.out}")
+    print(f"Projection {x.shape[1]} -> {a.dim} enregistrée : {a.out} (empreinte {proj.fingerprint})")
+    print("Elle sera utilisée automatiquement par eval-met, build-smk, build-wikidata et recognize.")
 
 
 def cmd_build_smk(a):
@@ -163,12 +174,12 @@ def cmd_build_wikidata(a):
 def cmd_recognize(a):
     from .imageio import read_image
     from .pack import Pack
-    from .recognize import Calibrator, Recognizer
+    from .recognize import Recognizer, load_decision
     p = Pack(a.pack)
     emb = _embedder(a)
     if emb.model_id != p.manifest["model_id"]:
         print(f"Attention : pack construit avec {p.manifest['model_id']}, modèle courant {emb.model_id}", file=sys.stderr)
-    cal = Calibrator.load(a.calibration) if a.calibration else None
+    cal = load_decision(a.calibration) if a.calibration else None
     rec = Recognizer(emb, p.index, p.keypoints, calibrator=cal)
     for path in a.images:
         r = rec.recognize(read_image(path))
@@ -185,7 +196,10 @@ def main(argv=None):
 
     def model_opts(p, default="auto"):
         p.add_argument("--model", default=default, help="chemin .onnx, 'thumb' (référence triviale) ou auto")
-        p.add_argument("--projection", help="fichier .npz de fit-projection")
+        p.add_argument("--projection", default="auto",
+                       help="fichier .npz de fit-projection ; auto = models/projection-256.npz s'il existe ; none")
+        p.add_argument("--pooling", default="cls", choices=["cls", "gem", "cls+gem"],
+                       help="résumé de DINOv2 (cls : meilleur au comparatif)")
 
     p = sub.add_parser("selftest"); model_opts(p, default="thumb")
     p.add_argument("--n", type=int, default=300); p.add_argument("--distractors", type=int, default=100)
@@ -220,8 +234,9 @@ def main(argv=None):
     p.set_defaults(f=cmd_sweep_met)
 
     p = sub.add_parser("fit-projection"); p.add_argument("--model", default="auto")
+    p.add_argument("--pooling", default="cls", choices=["cls", "gem", "cls+gem"])
     p.add_argument("--root", default="data/met"); p.add_argument("--full", action="store_true")
-    p.add_argument("--sample", type=int, default=20000); p.add_argument("--dim", type=int, default=256)
+    p.add_argument("--dim", type=int, default=256)
     p.add_argument("--shrinkage", type=float, default=0.5); p.add_argument("--cache", default="cache")
     p.add_argument("--out", default="models/projection-256.npz"); p.set_defaults(f=cmd_fit_projection)
 

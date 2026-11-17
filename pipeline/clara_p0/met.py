@@ -121,10 +121,25 @@ def is_painting(meta: str | None) -> bool:
     return cls.lower().startswith("painting") or dept == "European Paintings"
 
 
-def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], cache: Path,
-                   batch: int = 32, max_side: int = 512) -> FlatIndex:
-    """Embeddings de la base avec cache disque reprenable (Ctrl+C sans perte)."""
+def db_cache_path(cache_dir: str | Path, mini: bool, raw_id: str) -> Path:
+    return Path(cache_dir) / f"met_{'mini' if mini else 'full'}_{raw_id}.npz"
+
+
+def raw_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], cache: Path,
+                 batch: int = 32, max_side: int = 512) -> np.ndarray:
+    """Empreintes AVANT projection de la base, avec cache disque reprenable (Ctrl+C sans perte).
+
+    Si le cache de ce réglage n'existe pas mais qu'un cache 'cls+gem' (réglage initial) est complet,
+    l'empreinte est retrouvée sans réencoder."""
     cache.parent.mkdir(parents=True, exist_ok=True)
+    if not cache.exists() and getattr(embedder, "legacy_id", None) and embedder.legacy_id != embedder.raw_id:
+        legacy = cache.with_name(cache.name.replace(embedder.raw_id, embedder.legacy_id))
+        if legacy.exists():
+            d = np.load(legacy)
+            derived = embedder.from_legacy(d["vectors"])
+            if derived is not None:
+                np.savez(cache, vectors=derived, n=int(d["n"]))
+                print(f"  cache dérivé de {legacy.name} (pas de réencodage)")
     done_vecs, done_n = [], 0
     if cache.exists():
         d = np.load(cache)
@@ -137,7 +152,7 @@ def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], 
         for i in range(done_n, len(db)):
             imgs.append(resize_max(read_image(mp.resolve(db[i][0])), max_side))
             if len(imgs) == batch or i == len(db) - 1:
-                vecs.append(embedder.embed(imgs))
+                vecs.append(embedder.embed_raw(imgs))
                 n = i + 1
                 imgs = []
                 if (n - done_n) % (batch * 50) < batch:
@@ -148,7 +163,12 @@ def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], 
     finally:
         if vecs:
             np.savez(cache, vectors=np.concatenate(vecs), n=n)
-    x = np.concatenate(vecs)
+    return np.concatenate(vecs)[: len(db)]
+
+
+def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], cache: Path,
+                   batch: int = 32, max_side: int = 512) -> FlatIndex:
+    x = embedder.project(raw_database(embedder, mp, db, cache, batch, max_side))
     index = FlatIndex(embedder.dim)
     counts: dict[str, int] = {}
     rows = []
@@ -165,8 +185,7 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
     mp = MetPaths(root)
     db = mp.database(mini)
     print(f"Met Dataset : base {'mini' if mini else 'complète'} = {len(db)} images, modèle {embedder.model_id}")
-    cache = Path(cache_dir) / f"met_{'mini' if mini else 'full'}_{embedder.model_id}.npz"
-    index = embed_database(embedder, mp, db, cache)
+    index = embed_database(embedder, mp, db, db_cache_path(cache_dir, mini, embedder.raw_id))
 
     first_path: dict[str, str] = {}
     for p, aid in db:
@@ -206,9 +225,11 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
         val: RunOutput = run_queries(rec, load("val"))
         calibrator = val.fit_calibrator() if rerank else None
         if calibrator:
-            calibrator.save(Path(cache_dir) / f"calibration_{embedder.model_id}.json")
+            calibrator.save(Path(cache_dir) / f"decision_{embedder.model_id}.json")
     print("Mesure sur testset...")
     test = run_queries(rec, load("test"))
+    if paintings and rerank:  # règle apprise sur toutes les peintures, pour réutilisation (recognize --calibration)
+        test.fit_calibrator().save(Path(cache_dir) / f"decision_paintings_{embedder.model_id}.json")
     res = {"model_id": embedder.model_id, "database": "mini" if mini else "full", "k": k, "paintings_only": paintings,
            "museum_size": museum_size,
            **report("Met testset" + (" (peintures)" if paintings else ""), test, calibrator, rerank,

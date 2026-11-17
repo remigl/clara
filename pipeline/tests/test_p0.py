@@ -222,3 +222,29 @@ def test_sweep_on_fake_dataset(tmp_path):
                      cache_dir=str(tmp_path / "cache"), out=str(tmp_path / "s.json"))
     assert len(rows) == 3 * 2 * 2 and all(0 <= r["top1"] <= 1 for r in rows)
     assert sweep.coverage_at_far(np.array([.9, .8, .7]), np.array([True, True, False]), np.array([True] * 3)) == 2 / 3
+
+
+def test_decision_rule():
+    from clara_p0.recognize import DecisionRule
+    feats = [{"inl1": float(i), "cos1": 0.5} for i in range(60)]
+    ok = [i >= 30 for i in range(60)]
+    r = DecisionRule.fit(feats, ok)
+    assert 29 < r.t_auto <= 31 and r.predict(feats[45]) >= 0.9 and r.predict(feats[5]) < 0.5
+    assert r.t_confirm <= r.t_auto
+    assert DecisionRule(20, 10).predict({"inl1": 15, "cos1": 0}) == pytest.approx(0.7)
+
+
+def test_legacy_cache_derivation(tmp_path):
+    """Un cache 'cls+gem' permet d'obtenir l'empreinte 'cls' sans réencoder."""
+    class Fake(ThumbEmbedder):
+        def __init__(self):
+            super().__init__()
+            self.legacy_id, self.raw_id = "m", "m-cls"
+        def from_legacy(self, v):
+            return l2n(v[:, : v.shape[1] // 2])
+        def embed_raw(self, images):
+            raise AssertionError("ne doit pas réencoder")
+    legacy = l2n(RNG.standard_normal((5, 8)).astype(np.float32))
+    np.savez(tmp_path / "met_mini_m.npz", vectors=legacy, n=5)
+    x = met.raw_database(Fake(), None, [("p", str(i)) for i in range(5)], tmp_path / "met_mini_m-cls.npz")
+    assert x.shape == (5, 4) and np.allclose(x, l2n(legacy[:, :4]))
