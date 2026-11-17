@@ -69,8 +69,11 @@ class Embedder:
 class ThumbEmbedder(Embedder):
     def __init__(self, size: int = 16):
         self.size = size
-        self.dim = size * size * 3
+        self.dim = self.raw_dim = size * size * 3
         self.model_id = f"thumb-lab-{size}"
+
+    def _raw(self, images):  # même interface que OnnxDinoEmbedder (tests)
+        return self.embed(images)
 
     def embed(self, images):
         out = []

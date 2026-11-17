@@ -53,6 +53,15 @@ class MetPaths:
         return [(e["path"], str(e["MET_id"]) if "MET_id" in e else None) for e in data]
 
 
+def sample_queries(qs: list, limit: int | None, seed: int = 0) -> list:
+    """Échantillon aléatoire (reproductible) qui garde la proportion œuvres connues / hors base.
+    Les fichiers du Met sont triés : prendre les N premières lignes ne donne que des œuvres connues."""
+    if not limit or limit >= len(qs):
+        return qs
+    idx = np.random.default_rng(seed).choice(len(qs), limit, replace=False)
+    return [qs[i] for i in sorted(idx)]
+
+
 def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], cache: Path,
                    batch: int = 32, max_side: int = 512) -> FlatIndex:
     """Embeddings de la base avec cache disque reprenable (Ctrl+C sans perte)."""
@@ -107,9 +116,7 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
     rec = Recognizer(embedder, index, kps, verifier, k=k, rerank=rerank)
 
     def load(split):
-        qs = mp.queries(split)
-        if limit:
-            qs = qs[:limit]
+        qs = sample_queries(mp.queries(split), limit)
         return ((read_image(mp.resolve(p)), t) for p, t in qs)
 
     print("Calibration sur valset…")

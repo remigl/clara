@@ -4,6 +4,7 @@
   python -m clara_p0 download-model                DINOv2-small ONNX (Apache 2.0) -> models/
   python -m clara_p0 download-met                  Met Dataset (mini) -> data/met
   python -m clara_p0 eval-met                      précision sur les photos de visiteurs du Met
+  python -m clara_p0 sweep-met --paintings          variantes d'empreinte, mode musée, peintures seules
   python -m clara_p0 fit-projection                PCA-whitening 256-d appris sur la base Met
   python -m clara_p0 build-smk                     pack SMK (Copenhague)
   python -m clara_p0 build-wikidata --qid Q23402 --id fr-orsay
@@ -113,6 +114,13 @@ def cmd_eval_met(a):
                  cache_dir=a.cache, out=a.out, limit=a.limit)
 
 
+def cmd_sweep_met(a):
+    from . import sweep
+    sizes = [int(x) for x in a.museum_sizes.split(",")]
+    sweep.run(_model_arg(a), a.root, mini=not a.full, limit=a.limit, museum_sizes=sizes,
+              paintings=a.paintings, cache_dir=a.cache, out=a.out)
+
+
 def cmd_fit_projection(a):
     import numpy as np
     from .embed import Projection, make_embedder
@@ -197,6 +205,14 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="limiter le nombre de requêtes (essai rapide)")
     p.add_argument("--cache", default="cache"); p.add_argument("--out", default="results/met.json")
     p.set_defaults(f=cmd_eval_met)
+
+    p = sub.add_parser("sweep-met"); p.add_argument("--model", default="auto")
+    p.add_argument("--root", default="data/met"); p.add_argument("--full", action="store_true")
+    p.add_argument("--limit", type=int, default=2000, help="requêtes tirées au hasard dans testset")
+    p.add_argument("--museum-sizes", default="0,2000", help="0 = tout le Met ; N = musée simulé de N œuvres")
+    p.add_argument("--paintings", action="store_true", help="résultats séparés pour les peintures (API du Met)")
+    p.add_argument("--cache", default="cache"); p.add_argument("--out", default="results/sweep.json")
+    p.set_defaults(f=cmd_sweep_met)
 
     p = sub.add_parser("fit-projection"); p.add_argument("--model", default="auto")
     p.add_argument("--root", default="data/met"); p.add_argument("--full", action="store_true")

@@ -201,3 +201,18 @@ def test_dinov2_embedder():
     a = procedural_painting(RNG)
     v = e.embed([a, cv2.flip(a, 1), procedural_painting(RNG)])
     assert v.shape == (3, e.dim) and v[0] @ v[1] > v[0] @ v[2]
+
+
+def test_sample_queries_keeps_distractors():
+    qs = [(f"k{i}", str(i)) for i in range(800)] + [(f"d{i}", None) for i in range(200)]
+    s = met.sample_queries(qs, 100)
+    assert len(s) == 100 and 5 < sum(t is None for _, t in s) < 40
+
+
+def test_sweep_on_fake_dataset(tmp_path):
+    from clara_p0 import sweep
+    test_met_evaluation_on_fake_dataset(tmp_path)  # crée le faux Met et le cache de la base
+    rows = sweep.run(ThumbEmbedder(), str(tmp_path / "met"), limit=25, museum_sizes=(0, 10),
+                     cache_dir=str(tmp_path / "cache"), out=str(tmp_path / "s.json"))
+    assert len(rows) == 3 * 2 * 2 and all(0 <= r["top1"] <= 1 for r in rows)
+    assert sweep.coverage_at_far(np.array([.9, .8, .7]), np.array([True, True, False]), np.array([True] * 3)) == 2 / 3
