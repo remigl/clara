@@ -12,8 +12,9 @@ Scanner un tableau dans un musée, le reconnaître **sur l'appareil**, l'ajouter
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | architecture complète : données, reconnaissance, recherche vectorielle, contexte musée, feuille de route |
 | [`data/schema.sql`](data/schema.sql) | schéma SQLite (`catalog.db` par pack, `user.db` pour l'utilisateur) |
+| [`pipeline/`](pipeline/README.md) | phase P0 en Python : reconnaissance, évaluation Met Dataset, construction des packs (SMK, Wikidata) |
 | [`tools/bench_search.py`](tools/bench_search.py) | banc d'essai de la recherche vectorielle brute (numpy) |
 
 ## État
 
-Phase P0 (conception et preuve de concept). Voir la feuille de route dans `docs/ARCHITECTURE.md` §10.
+Phase P0 : le code est prêt et testé hors ligne ; les mesures sur données réelles se lancent depuis `pipeline/` (voir son README). Feuille de route : `docs/ARCHITECTURE.md` §10.

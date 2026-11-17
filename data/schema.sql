@@ -78,7 +78,8 @@ CREATE TABLE artwork (
   room             TEXT,
   floor            TEXT,
   exhibition_status TEXT NOT NULL DEFAULT 'unknown',
-      -- on_display | temporarily_absent | in_storage | on_loan | unknown
+      -- on_display | not_on_display | temporarily_absent | in_storage | on_loan | unknown
+      -- (not_on_display : la source dit seulement « pas exposée », sans préciser où)
   status_source_id TEXT REFERENCES source(id),
   status_checked_at TEXT,                -- date de dernière vérification du statut
   counts_for_progress INTEGER NOT NULL DEFAULT 1, -- inclus dans le dénominateur du musée ?
@@ -103,18 +104,18 @@ CREATE TABLE artwork_image (             -- image AFFICHÉE dans la fiche (peut 
 );
 
 CREATE TABLE artwork_embedding (         -- une œuvre peut avoir plusieurs vues de référence
+  row              INTEGER PRIMARY KEY,  -- ligne dans vectors.bin (int8[dim]) et scales.bin (f32)
   artwork_id       TEXT NOT NULL REFERENCES artwork(id),
   view_idx         INTEGER NOT NULL,     -- 0 = image complète, 1.. = recadrages / augmentations
-  kind             TEXT NOT NULL,        -- 'full' | 'crop_center' | 'crop_tl' | 'augmented' | 'user_confirmed'
-  vector           BLOB NOT NULL,        -- int8[dim] normalisé L2, ou f16[dim]
-  scale            REAL,                 -- facteur de déquantification si int8
-  PRIMARY KEY (artwork_id, view_idx)
+  kind             TEXT NOT NULL,        -- 'full' | 'crop_center' | 'crop_tl' | 'augmented'
+  UNIQUE (artwork_id, view_idx)
 );
+-- Les vecteurs restent hors de SQLite (fichier plat mmappé, parcouru en SIMD) : voir ARCHITECTURE.md §5.
 
 CREATE TABLE artwork_keypoints (         -- descripteurs locaux pour la vérification géométrique (reranking)
   artwork_id       TEXT PRIMARY KEY REFERENCES artwork(id),
-  n                INTEGER NOT NULL,
-  data             BLOB NOT NULL         -- XFeat : 256 pts max × (x,y,f16 desc[64]) ~ 34 Ko
+  offset           INTEGER NOT NULL,     -- position dans keypoints.bin
+  length           INTEGER NOT NULL      -- P0 : SIFT (u32 n, f32 xy[n,2], u8 desc[n,128]) ; app : XFeat
 );
 
 -- recherche plein texte hors ligne (titre, artiste, description)
@@ -126,6 +127,15 @@ CREATE VIRTUAL TABLE artwork_fts USING fts5(
 ----------------------------------------------------------------------
 -- user.db
 ----------------------------------------------------------------------
+CREATE TABLE user_embedding (            -- vues ajoutées après confirmation de l'utilisateur, sur SON appareil
+  id               INTEGER PRIMARY KEY,
+  artwork_id       TEXT NOT NULL,
+  model_id         TEXT NOT NULL,
+  vector           BLOB NOT NULL,        -- int8[dim] (petit volume : un BLOB suffit ici)
+  scale            REAL NOT NULL,
+  created_at       TEXT NOT NULL
+);
+
 CREATE TABLE scan (                      -- historique brut : chaque tentative de reconnaissance
   id               INTEGER PRIMARY KEY,
   created_at       TEXT NOT NULL,

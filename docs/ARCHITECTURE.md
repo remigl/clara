@@ -105,7 +105,7 @@ Pour les musées de niveau 0–1, on compte la progression sur un sous-ensemble 
 
 Schéma complet : [`data/schema.sql`](../data/schema.sql). Ce qui s'écarte de ta proposition :
 
-- `visualEmbedding` n'est pas une colonne de `artwork` : c'est une table `artwork_embedding` avec **plusieurs vues par œuvre** (image complète + recadrages), liée à un `model_id`. Changer de modèle oblige à régénérer les vecteurs, et la base le sait.
+- `visualEmbedding` n'est pas une colonne de `artwork` : c'est une table `artwork_embedding` avec **plusieurs vues par œuvre** (image complète + recadrages) qui pointe vers une ligne de `vectors.bin`, lié à un `model_id`. Changer de modèle oblige à régénérer les vecteurs, et la base le sait. Les vues ajoutées après confirmation de l'utilisateur vont dans `user_embedding` (`user.db`).
 - `image` + `imageRights` deviennent `artwork_image` (chemin local, droits, crédit, URL d'origine).
 - `scannedWorks` / `scanHistory` sont séparés : `scan` (chaque tentative, avec le top-5 et la décision) et `collected` (une ligne par œuvre, premier et dernier passage, nombre de passages). L'historique sert au diagnostic local et à améliorer les seuils.
 - `artwork_keypoints` stocke les descripteurs XFeat de référence pour le reranking.
@@ -185,7 +185,7 @@ p = sigmoid(w · features + b)
 | 0,50 – 0,90 | « C'est bien celle-ci ? » + 2 alternatives en vignettes |
 | < 0,50 | « Œuvre non reconnue » → proposer « Chercher partout » ou la recherche texte |
 
-Une confirmation de l'utilisateur ajoute la photo rectifiée comme vue `user_confirmed` dans **sa** base locale : Clara reconnaît mieux, sur son appareil, les œuvres qu'il revoit.
+Une confirmation de l'utilisateur ajoute l'embedding de la photo rectifiée dans `user_embedding`, dans **sa** base locale : Clara reconnaît mieux, sur son appareil, les œuvres qu'il revoit.
 
 ### 4.3 Mode visée continue
 
@@ -293,9 +293,9 @@ Orsay et le Louvre viendront ensuite, au niveau 0–1.
 
 | Phase | Contenu | Critère de sortie |
 |---|---|---|
-| **P0 — Preuve** (Python) | pipeline Wikidata → 1 musée ; comparaison DINOv2 / SigLIP 2 / MobileCLIP sur le jeu de test réel, avec et sans reranking XFeat | chiffres top-1 / fausses acceptations, choix du modèle |
+| **P0 — Preuve** (Python, [`pipeline/`](../pipeline/README.md) : code prêt, mesures réelles à lancer) | pipeline Wikidata → 1 musée ; comparaison DINOv2 / SigLIP 2 / MobileCLIP sur le jeu de test réel, avec et sans reranking XFeat | chiffres top-1 / fausses acceptations, choix du modèle |
 | **P1 — MVP Android** | Flutter + `clara_core` ; 1 pack ; visée continue ; collection ; progression ; fiches ; tout en mode avion | parcours complet dans un vrai musée sans réseau |
-| **P2 — Robustesse** | détecteur 4 coins synthétique ; fine-tuning metric learning ; calibration de la confiance ; vues `user_confirmed` | objectifs du §9 atteints |
+| **P2 — Robustesse** | détecteur 4 coins synthétique ; fine-tuning metric learning ; calibration de la confiance ; vues confirmées par l'utilisateur (`user_embedding`) | objectifs du §9 atteints |
 | **P3 — Échelle** | 10+ musées, niveaux de données, mises à jour de packs, « Reconnaître partout » (USearch), iOS (Core ML EP) | 2 OS, index global < 100 Mo |
 
 ---

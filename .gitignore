@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+pipeline/models/
+pipeline/data/
+pipeline/cache/
+pipeline/packs/
+pipeline/results/
+*.part
