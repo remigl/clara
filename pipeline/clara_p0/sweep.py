@@ -19,7 +19,7 @@ import numpy as np
 
 from .embed import OnnxDinoEmbedder, Projection, l2n
 from .imageio import read_image
-from .met import MetPaths, sample_queries
+from .met import MetPaths, balanced_queries, is_painting, met_departments
 from .metrics import gap
 from .views import query_views
 
@@ -57,41 +57,7 @@ def _query_cache(emb: OnnxDinoEmbedder, mp: MetPaths, qs, cache: Path):
     return vecs, nviews
 
 
-def _met_departments(ids: set[str], cache: Path) -> dict[str, str]:
-    """Département de chaque objet via l'API ouverte du Met (CC0). Mis en cache ; erreurs ignorées."""
-    import requests
-    known = json.loads(cache.read_text()) if cache.exists() else {}
-    todo = [i for i in ids if i not in known]
-    if todo:
-        print(f"  API du Met : {len(todo)} objets à interroger…", flush=True)
-    s = requests.Session()
-    s.headers["User-Agent"] = "clara-p0/0.1 (https://github.com/remigl/clara)"
-    for n, i in enumerate(todo, 1):
-        try:
-            r = s.get(f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{i}", timeout=20)
-            if r.status_code == 200:
-                j = r.json()
-                known[i] = f"{j.get('department', '')}|{j.get('classification', '')}"
-            elif r.status_code == 404:
-                known[i] = "?|?"
-        except Exception:
-            pass
-        if n % 100 == 0:
-            cache.write_text(json.dumps(known))
-            print(f"  API du Met : {n}/{len(todo)}", flush=True)
-        time.sleep(0.02)
-    cache.write_text(json.dumps(known))
-    return known
-
-
-def is_painting(meta: str | None) -> bool:
-    if not meta:
-        return False
-    dept, cls = (meta.split("|") + [""])[:2]
-    return cls.lower().startswith("painting") or (dept == "European Paintings")
-
-
-def run(model, root: str, mini: bool = True, limit: int = 2000, museum_sizes=(0, 2000),
+def run(model, root: str, mini: bool = True, limit: int | None = None, distractors: int = 1000, museum_sizes=(0, 2000),
         paintings: bool = False, cache_dir: str = "cache", out: str | None = None, seed: int = 0) -> list[dict]:
     emb = OnnxDinoEmbedder(model) if isinstance(model, (str, Path)) else model
     mp = MetPaths(root)
@@ -111,7 +77,7 @@ def run(model, root: str, mini: bool = True, limit: int = 2000, museum_sizes=(0,
     cpos = {c: i for i, c in enumerate(classes)}
     group = np.array([cpos[a] for a in labels], np.int64)
 
-    qs = sample_queries(mp.queries("test"), limit, seed)
+    qs = balanced_queries(mp.queries("test"), limit, distractors, seed)
     truth = [t for _, t in qs]
     print(f"Sweep Met : base {len(db)} images / {len(classes)} œuvres ; {len(qs)} requêtes "
           f"({sum(t is not None for t in truth)} connues, {sum(t is None for t in truth)} hors base)")
@@ -120,7 +86,7 @@ def run(model, root: str, mini: bool = True, limit: int = 2000, museum_sizes=(0,
 
     subsets = {"toutes œuvres": np.ones(len(qs), bool)}
     if paintings:
-        meta = _met_departments({t for t in truth if t is not None}, Path(cache_dir) / "met_objects.json")
+        meta = met_departments({t for t in truth if t is not None}, Path(cache_dir) / "met_objects.json")
         mask = np.array([t is None or is_painting(meta.get(t)) for t in truth])
         n_p = int(sum(1 for t, m in zip(truth, mask) if t is not None and m))
         ex = [(t, meta.get(t)) for t in truth if t is not None][:3]
@@ -179,7 +145,7 @@ def run(model, root: str, mini: bool = True, limit: int = 2000, museum_sizes=(0,
     for r in rows:
         print(f"{r['variante']:9} {r['projection']:9} {r['base']:22} {r['sous-ensemble']:14} "
               f"{100 * r['top1']:6.1f}% {100 * r['gap']:6.1f}% {100 * r['couverture_far1']:6.1f}%")
-    print("\nsûr@1% = part des œuvres reconnues avec un seuil réglé pour ≤ 1 % d'erreurs (embedding seul).")
+    print("\nsûr@1% = part des œuvres reconnues avec un seuil réglé pour <= 1 % d'erreurs (embedding seul).")
     if out:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")

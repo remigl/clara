@@ -203,16 +203,20 @@ def test_dinov2_embedder():
     assert v.shape == (3, e.dim) and v[0] @ v[1] > v[0] @ v[2]
 
 
-def test_sample_queries_keeps_distractors():
-    qs = [(f"k{i}", str(i)) for i in range(800)] + [(f"d{i}", None) for i in range(200)]
-    s = met.sample_queries(qs, 100)
-    assert len(s) == 100 and 5 < sum(t is None for _, t in s) < 40
+def test_balanced_queries():
+    qs = [(f"k{i}", str(i)) for i in range(100)] + [(f"d{i}", None) for i in range(2000)]
+    s = met.balanced_queries(qs, None, 300)
+    assert sum(t is not None for _, t in s) == 100 and sum(t is None for _, t in s) == 300
+    s = met.balanced_queries(qs, 10, 5, keep=lambda t: int(t) % 2 == 0)
+    assert all(int(t) % 2 == 0 for _, t in s if t) and len(s) == 15
+    assert met.is_painting("European Paintings|") and met.is_painting("Asian Art|Paintings")
+    assert not met.is_painting("Egyptian Art|Sculpture") and not met.is_painting(None)
 
 
 def test_sweep_on_fake_dataset(tmp_path):
     from clara_p0 import sweep
     test_met_evaluation_on_fake_dataset(tmp_path)  # crée le faux Met et le cache de la base
-    rows = sweep.run(ThumbEmbedder(), str(tmp_path / "met"), limit=25, museum_sizes=(0, 10),
+    rows = sweep.run(ThumbEmbedder(), str(tmp_path / "met"), distractors=5, museum_sizes=(0, 10),
                      cache_dir=str(tmp_path / "cache"), out=str(tmp_path / "s.json"))
     assert len(rows) == 3 * 2 * 2 and all(0 <= r["top1"] <= 1 for r in rows)
     assert sweep.coverage_at_far(np.array([.9, .8, .7]), np.array([True, True, False]), np.array([True] * 3)) == 2 / 3

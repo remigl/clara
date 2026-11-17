@@ -111,13 +111,13 @@ def cmd_download_met(a):
 def cmd_eval_met(a):
     from . import met
     met.evaluate(_embedder(a), a.root, mini=not a.full, rerank=not a.no_rerank, k=a.k,
-                 cache_dir=a.cache, out=a.out, limit=a.limit)
+                 cache_dir=a.cache, out=a.out, limit=a.limit, distractors=a.distractors, paintings=a.paintings)
 
 
 def cmd_sweep_met(a):
     from . import sweep
     sizes = [int(x) for x in a.museum_sizes.split(",")]
-    sweep.run(_model_arg(a), a.root, mini=not a.full, limit=a.limit, museum_sizes=sizes,
+    sweep.run(_model_arg(a), a.root, mini=not a.full, limit=a.limit, distractors=a.distractors, museum_sizes=sizes,
               paintings=a.paintings, cache_dir=a.cache, out=a.out)
 
 
@@ -202,13 +202,16 @@ def main(argv=None):
     p = sub.add_parser("eval-met"); model_opts(p)
     p.add_argument("--root", default="data/met"); p.add_argument("--full", action="store_true")
     p.add_argument("--no-rerank", action="store_true"); p.add_argument("--k", type=int, default=5)
-    p.add_argument("--limit", type=int, help="limiter le nombre de requêtes (essai rapide)")
+    p.add_argument("--limit", type=int, help="nombre d'œuvres connues tirées au hasard (défaut : toutes)")
+    p.add_argument("--distractors", type=int, default=1000, help="nombre d'objets hors base tirés au hasard")
+    p.add_argument("--paintings", action="store_true", help="œuvres connues limitées aux peintures (API du Met)")
     p.add_argument("--cache", default="cache"); p.add_argument("--out", default="results/met.json")
     p.set_defaults(f=cmd_eval_met)
 
     p = sub.add_parser("sweep-met"); p.add_argument("--model", default="auto")
     p.add_argument("--root", default="data/met"); p.add_argument("--full", action="store_true")
-    p.add_argument("--limit", type=int, default=2000, help="requêtes tirées au hasard dans testset")
+    p.add_argument("--limit", type=int, help="nombre d'œuvres connues (défaut : toutes)")
+    p.add_argument("--distractors", type=int, default=1000, help="nombre d'objets hors base")
     p.add_argument("--museum-sizes", default="0,2000", help="0 = tout le Met ; N = musée simulé de N œuvres")
     p.add_argument("--paintings", action="store_true", help="résultats séparés pour les peintures (API du Met)")
     p.add_argument("--cache", default="cache"); p.add_argument("--out", default="results/sweep.json")
@@ -238,6 +241,11 @@ def main(argv=None):
     p.add_argument("--pack", required=True); p.add_argument("--calibration")
     p.add_argument("images", nargs="+"); p.set_defaults(f=cmd_recognize)
 
+    for stream in (sys.stdout, sys.stderr):  # console Windows (cp1252) : ne jamais planter sur un caractère
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     a = ap.parse_args(argv)
     if getattr(a, "out", None) and a.cmd == "eval-met":
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)

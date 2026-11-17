@@ -62,6 +62,58 @@ def sample_queries(qs: list, limit: int | None, seed: int = 0) -> list:
     return [qs[i] for i in sorted(idx)]
 
 
+def balanced_queries(qs: list, n_known: int | None = None, n_distractors: int | None = 1000,
+                     seed: int = 0, keep=None) -> list:
+    """Toutes les requêtes connues (ou n_known) + n_distractors objets hors base, tirés au hasard.
+    Le testset du Met contient ~20 fois plus de distracteurs que d'œuvres connues : sans équilibrage,
+    un échantillon ne garde qu'une centaine d'œuvres connues. `keep(t)` filtre les œuvres connues."""
+    rng = np.random.default_rng(seed)
+    known = [q for q in qs if q[1] is not None and (keep is None or keep(q[1]))]
+    distr = [q for q in qs if q[1] is None]
+    if n_known is not None and n_known < len(known):
+        known = [known[i] for i in sorted(rng.choice(len(known), n_known, replace=False))]
+    if n_distractors is not None and n_distractors < len(distr):
+        distr = [distr[i] for i in sorted(rng.choice(len(distr), n_distractors, replace=False))]
+    return known + distr
+
+
+def met_departments(ids, cache: Path) -> dict[str, str]:
+    """« département|classification » de chaque objet via l'API ouverte du Met. Mis en cache."""
+    import requests
+    known = json.loads(cache.read_text()) if cache.exists() else {}
+    todo = [i for i in ids if i not in known]
+    if todo:
+        print(f"  API du Met : {len(todo)} objets à interroger...", flush=True)
+    s = requests.Session()
+    s.headers["User-Agent"] = "clara-p0/0.1 (https://github.com/remigl/clara)"
+    for n, i in enumerate(todo, 1):
+        try:
+            r = s.get(f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{i}", timeout=20)
+            if r.status_code == 200:
+                j = r.json()
+                known[i] = f"{j.get('department', '')}|{j.get('classification', '')}"
+            elif r.status_code == 404:
+                known[i] = "?|?"
+        except Exception:
+            pass
+        if n % 100 == 0:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(known))
+            print(f"  API du Met : {n}/{len(todo)}", flush=True)
+        time.sleep(0.02)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(known))
+    return known
+
+
+def is_painting(meta: str | None) -> bool:
+    """Tableau plat : classification « Paintings » ou département des peintures européennes."""
+    if not meta:
+        return False
+    dept, cls = (meta.split("|") + [""])[:2]
+    return cls.lower().startswith("painting") or dept == "European Paintings"
+
+
 def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], cache: Path,
                    batch: int = 32, max_side: int = 512) -> FlatIndex:
     """Embeddings de la base avec cache disque reprenable (Ctrl+C sans perte)."""
@@ -101,7 +153,8 @@ def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], 
 
 
 def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = True, k: int = 5,
-             cache_dir: str = "cache", out: str | None = None, limit: int | None = None) -> dict:
+             cache_dir: str = "cache", out: str | None = None, limit: int | None = None,
+             distractors: int | None = 1000, paintings: bool = False) -> dict:
     mp = MetPaths(root)
     db = mp.database(mini)
     print(f"Met Dataset : base {'mini' if mini else 'complète'} = {len(db)} images, modèle {embedder.model_id}")
@@ -115,8 +168,16 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
     kps = LazyKeypoints(lambda a: mp.resolve(first_path[a]) if a in first_path else None, verifier) if rerank else None
     rec = Recognizer(embedder, index, kps, verifier, k=k, rerank=rerank)
 
+    keep = None
+    if paintings:
+        ids = {t for sp in ("val", "test") for _, t in mp.queries(sp) if t is not None}
+        meta = met_departments(ids, Path(cache_dir) / "met_objects.json")
+        keep = lambda t: is_painting(meta.get(t))  # noqa: E731
+        print(f"  peintures : {sum(keep(t) for t in ids)} œuvres connues sur {len(ids)}")
+
     def load(split):
-        qs = sample_queries(mp.queries(split), limit)
+        qs = balanced_queries(mp.queries(split), limit, distractors, keep=keep)
+        print(f"  {split} : {sum(t is not None for _, t in qs)} œuvres connues + {sum(t is None for _, t in qs)} hors base")
         return ((read_image(mp.resolve(p)), t) for p, t in qs)
 
     print("Calibration sur valset…")
@@ -126,7 +187,7 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
         calibrator.save(Path(cache_dir) / f"calibration_{embedder.model_id}.json")
     print("Mesure sur testset…")
     test = run_queries(rec, load("test"))
-    res = {"model_id": embedder.model_id, "database": "mini" if mini else "full", "k": k,
+    res = {"model_id": embedder.model_id, "database": "mini" if mini else "full", "k": k, "paintings_only": paintings,
            **report("Met testset", test, calibrator, rerank)}
     if out:
         save_json(out, res)
