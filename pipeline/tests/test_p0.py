@@ -189,6 +189,8 @@ def test_met_evaluation_on_fake_dataset(tmp_path):
     assert res["with_rerank"]["n_known"] == 20 and res["with_rerank"]["n_distractors"] == 5
     assert res["with_rerank"]["top1_accuracy"] >= 0.6
     assert (tmp_path / "r.json").exists()
+    res = met.evaluate(ThumbEmbedder(), str(root), cache_dir=str(tmp_path / "cache"), museum_size=12)
+    assert "safe_coverage_far1" in res["with_rerank"] and res["museum_size"] == 12
 
 
 MODEL = Path(__file__).resolve().parents[1] / "models" / "dinov2-small.onnx"

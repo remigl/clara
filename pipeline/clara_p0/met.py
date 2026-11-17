@@ -154,7 +154,7 @@ def embed_database(embedder: Embedder, mp: MetPaths, db: list[tuple[str, str]], 
 
 def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = True, k: int = 5,
              cache_dir: str = "cache", out: str | None = None, limit: int | None = None,
-             distractors: int | None = 1000, paintings: bool = False) -> dict:
+             distractors: int | None = 1000, paintings: bool = False, museum_size: int | None = None) -> dict:
     mp = MetPaths(root)
     db = mp.database(mini)
     print(f"Met Dataset : base {'mini' if mini else 'complète'} = {len(db)} images, modèle {embedder.model_id}")
@@ -166,8 +166,6 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
         first_path.setdefault(aid, p)
     verifier = GeometricVerifier() if rerank else None
     kps = LazyKeypoints(lambda a: mp.resolve(first_path[a]) if a in first_path else None, verifier) if rerank else None
-    rec = Recognizer(embedder, index, kps, verifier, k=k, rerank=rerank)
-
     keep = None
     if paintings:
         ids = {t for sp in ("val", "test") for _, t in mp.queries(sp) if t is not None}
@@ -175,20 +173,39 @@ def evaluate(embedder: Embedder, root: str, mini: bool = True, rerank: bool = Tr
         keep = lambda t: is_painting(meta.get(t))  # noqa: E731
         print(f"  peintures : {sum(keep(t) for t in ids)} œuvres connues sur {len(ids)}")
 
+    if museum_size:
+        # « musée » simulé : les œuvres des requêtes (val + test) + des œuvres tirées au hasard, comme le pack
+        # d'un musée de cette taille. Les objets hors base restent hors base.
+        needed = {t for sp in ("val", "test") for _, t in mp.queries(sp) if t is not None}
+        others = sorted(set(first_path) - needed)
+        rng = np.random.default_rng(0)
+        extra = max(museum_size - len(needed), 0)
+        chosen = needed | set(rng.choice(others, min(extra, len(others)), replace=False).tolist())
+        keep_rows = [i for i, r in enumerate(index.rows) if r[0] in chosen]
+        sub = FlatIndex(index.dim)
+        sub.add(index.q[keep_rows].astype(np.float32) * index.scale[keep_rows, None], [index.rows[i] for i in keep_rows])
+        index = sub
+        print(f"  musée simulé : {len(chosen)} œuvres ({len(keep_rows)} images)")
+    rec = Recognizer(embedder, index, kps, verifier, k=k, rerank=rerank)
+
     def load(split):
         qs = balanced_queries(mp.queries(split), limit, distractors, keep=keep)
         print(f"  {split} : {sum(t is not None for _, t in qs)} œuvres connues + {sum(t is None for _, t in qs)} hors base")
         return ((read_image(mp.resolve(p)), t) for p, t in qs)
 
-    print("Calibration sur valset…")
-    val: RunOutput = run_queries(rec, load("val"))
-    calibrator = val.fit_calibrator() if rerank else None
-    if calibrator:
-        calibrator.save(Path(cache_dir) / f"calibration_{embedder.model_id}.json")
-    print("Mesure sur testset…")
+    calibrator = None
+    if not paintings:  # valset ne contient aucune peinture : en mode peintures, validation croisée sur testset
+        print("Calibration sur valset...")
+        val: RunOutput = run_queries(rec, load("val"))
+        calibrator = val.fit_calibrator() if rerank else None
+        if calibrator:
+            calibrator.save(Path(cache_dir) / f"calibration_{embedder.model_id}.json")
+    print("Mesure sur testset...")
     test = run_queries(rec, load("test"))
     res = {"model_id": embedder.model_id, "database": "mini" if mini else "full", "k": k, "paintings_only": paintings,
-           **report("Met testset", test, calibrator, rerank)}
+           "museum_size": museum_size,
+           **report("Met testset" + (" (peintures)" if paintings else ""), test, calibrator, rerank,
+                    cross_calibrate=paintings)}
     if out:
         save_json(out, res)
     return res

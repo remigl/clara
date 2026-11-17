@@ -20,22 +20,8 @@ import numpy as np
 from .embed import OnnxDinoEmbedder, Projection, l2n
 from .imageio import read_image
 from .met import MetPaths, balanced_queries, is_painting, met_departments
-from .metrics import gap
+from .metrics import coverage_at_far, gap
 from .views import query_views
-
-def coverage_at_far(scores, correct, known, far: float = 0.01) -> float:
-    """Part des requêtes connues acceptées correctement au seuil le plus bas qui garde
-    le taux d'erreur parmi les acceptées <= far (distracteurs acceptés = erreurs)."""
-    order = np.argsort(-scores, kind="stable")
-    c = correct[order]
-    k = np.arange(1, len(c) + 1)
-    err = np.cumsum(~c)
-    ok = np.where(err <= far * k)[0]
-    if len(ok) == 0:
-        return 0.0
-    top = ok.max() + 1
-    return float(c[:top].sum() / max(known.sum(), 1))
-
 
 def _query_cache(emb: OnnxDinoEmbedder, mp: MetPaths, qs, cache: Path):
     if cache.exists():

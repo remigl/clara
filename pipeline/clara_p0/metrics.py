@@ -19,6 +19,21 @@ def gap(pred: list, conf: list[float], truth: list) -> float:
     return float((prec * rel).sum() / n_obj)
 
 
+def coverage_at_far(scores, correct, known, far: float = 0.01) -> float:
+    """Part des œuvres connues acceptées correctement au seuil le plus bas qui garde le taux d'erreur
+    parmi les acceptées <= far (un objet hors base accepté compte comme une erreur).
+    Ne dépend d'aucune calibration : seul l'ordre des scores compte."""
+    scores = np.asarray(scores, np.float64)
+    correct = np.asarray(correct, bool)
+    order = np.argsort(-scores, kind="stable")
+    c = correct[order]
+    k = np.arange(1, len(c) + 1)
+    ok = np.where(np.cumsum(~c) <= far * k)[0]
+    if len(ok) == 0:
+        return 0.0
+    return float(c[: ok.max() + 1].sum() / max(np.asarray(known).sum(), 1))
+
+
 def summarize(pred: list, conf: list[float], truth: list, accept: float, confirm: float) -> dict:
     """Indicateurs produit (ARCHITECTURE.md §9)."""
     pred, truth = list(pred), list(truth)
@@ -41,6 +56,7 @@ def summarize(pred: list, conf: list[float], truth: list, accept: float, confirm
         "confirm_or_better_coverage": float((acc_any & known).sum() / max(n_known, 1)),
         # objets hors base correctement rejetés (pas d'ajout automatique)
         "distractor_rejection": float((~acc_auto & ~known).sum() / n_distr) if n_distr else None,
+        "safe_coverage_far1": coverage_at_far(conf, correct, known, 0.01),
     }
     return out
 
@@ -55,4 +71,5 @@ def format_summary(name: str, s: dict) -> str:
             f"  fausses acceptations (auto)       {pct(s['false_accept_rate_auto'])}\n"
             f"  couverture ajout automatique      {pct(s['auto_accept_coverage'])}\n"
             f"  couverture auto + confirmation    {pct(s['confirm_or_better_coverage'])}\n"
-            f"  rejet des objets hors base        {pct(s['distractor_rejection'])}")
+            f"  rejet des objets hors base        {pct(s['distractor_rejection'])}\n"
+            f"  sûr@1 % (seuil à 1 % d'erreurs)   {pct(s.get('safe_coverage_far1'))}")

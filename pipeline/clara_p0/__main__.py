@@ -111,7 +111,8 @@ def cmd_download_met(a):
 def cmd_eval_met(a):
     from . import met
     met.evaluate(_embedder(a), a.root, mini=not a.full, rerank=not a.no_rerank, k=a.k,
-                 cache_dir=a.cache, out=a.out, limit=a.limit, distractors=a.distractors, paintings=a.paintings)
+                 cache_dir=a.cache, out=a.out, limit=a.limit, distractors=a.distractors, paintings=a.paintings,
+                 museum_size=a.museum_size)
 
 
 def cmd_sweep_met(a):
@@ -205,6 +206,7 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="nombre d'œuvres connues tirées au hasard (défaut : toutes)")
     p.add_argument("--distractors", type=int, default=1000, help="nombre d'objets hors base tirés au hasard")
     p.add_argument("--paintings", action="store_true", help="œuvres connues limitées aux peintures (API du Met)")
+    p.add_argument("--museum-size", type=int, help="chercher dans un musée simulé de N œuvres au lieu de tout le Met")
     p.add_argument("--cache", default="cache"); p.add_argument("--out", default="results/met.json")
     p.set_defaults(f=cmd_eval_met)
 
