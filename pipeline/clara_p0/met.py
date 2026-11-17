@@ -87,22 +87,29 @@ def met_departments(ids, cache: Path) -> dict[str, str]:
     s = requests.Session()
     s.headers["User-Agent"] = "clara-p0/0.1 (https://github.com/remigl/clara)"
     for n, i in enumerate(todo, 1):
-        try:
-            r = s.get(f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{i}", timeout=20)
-            if r.status_code == 200:
-                j = r.json()
-                known[i] = f"{j.get('department', '')}|{j.get('classification', '')}"
-            elif r.status_code == 404:
-                known[i] = "?|?"
-        except Exception:
-            pass
+        for attempt in range(4):  # l'API limite le débit : on réessaie avec une pause croissante
+            try:
+                r = s.get(f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{i}", timeout=20)
+                if r.status_code == 200:
+                    j = r.json()
+                    known[i] = f"{j.get('department', '')}|{j.get('classification', '')}"
+                    break
+                if r.status_code == 404:
+                    known[i] = "?|?"
+                    break
+            except Exception:
+                pass
+            time.sleep(1.0 * (attempt + 1))
         if n % 100 == 0:
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_text(json.dumps(known))
             print(f"  API du Met : {n}/{len(todo)}", flush=True)
-        time.sleep(0.02)
+        time.sleep(0.05)
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(known))
+    missing = sum(1 for i in ids if i not in known)
+    if missing:
+        print(f"  API du Met : {missing} objets sans réponse (relancer pour compléter)")
     return known
 
 
