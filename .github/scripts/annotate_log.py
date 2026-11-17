@@ -17,6 +17,8 @@ if not lines:
     print("::error title=log::journal vide")
     sys.exit(0)
 
+# barres de progression (téléchargement du NDK...) et piles Java interminables : inutiles
+lines = [l[:400] for l in lines if not re.match(r"^\s*\[=*\s*\]", l) and "Downloading" not in l]
 errs = [l for l in lines if re.search(r"(error|Error|ERROR|FAILURE|Exception|What went wrong)", l)]
 if errs:
     print(f"::error title=errors::{esc(chr(10).join(errs[-60:])[-3800:])}")
