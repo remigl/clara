@@ -63,6 +63,15 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: gradle-${{ runner.os }}-
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -88,7 +97,13 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
         run: |
           set -o pipefail
-          flutter build apk --release --target-platform android-arm64 2>&1 | tee -a ../ci.log
+          # les dépôts Gradle/Maven ont des pannes passagères (POM illisible, 5xx) : jusqu'à 3 essais
+          for attempt in 1 2 3; do
+            if flutter build apk --release --target-platform android-arm64 2>&1 | tee -a ../ci.log; then break; fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            echo "Échec de la compilation (essai $attempt), nouvel essai dans 30 s" | tee -a ../ci.log
+            sleep 30
+          done
           cp build/app/outputs/flutter-apk/app-release.apk "../clara-${TAG}.apk"
           ls -lh ../clara-*.apk
 
