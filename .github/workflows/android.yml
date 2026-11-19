@@ -44,8 +44,8 @@ jobs:
         run: |
           set -o pipefail
           pip install -q -r requirements.txt
-          python -m clara_p0 download-model --variant dinov2-small-int8 2>&1 | tee -a ../ci.log
-          OPTS="--model models/dinov2-small-int8.onnx --projection none --pooling cls"
+          python -m clara_p0 download-model --variant dinov2-small 2>&1 | tee -a ../ci.log
+          OPTS="--model models/dinov2-small.onnx --projection none --pooling cls"
           # l'API SMK est parfois instable : en dernier recours, notices de la compilation précédente (cache)
           if ! python -m clara_p0 build-smk $OPTS 2>&1 | tee -a ../ci.log; then
             test -f cache/smk/raw.jsonl || exit 1
@@ -56,7 +56,7 @@ jobs:
       - name: Assets de l'app
         run: |
           set -o pipefail
-          bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1 pipeline/models/dinov2-small-int8.onnx 2>&1 | tee -a ci.log
+          bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1 pipeline/models/dinov2-small.onnx 2>&1 | tee -a ci.log
 
       - uses: actions/setup-java@v5
         with:

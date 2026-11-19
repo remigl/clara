@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copie le modèle et un pack musée dans les assets de l'app.
-# Usage (depuis la racine du dépôt) : bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1 pipeline/models/dinov2-small-int8.onnx
+# Usage (depuis la racine du dépôt) : bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1 pipeline/models/dinov2-small.onnx
 set -euo pipefail
 PACK="$1"
 MODEL="$2"
