@@ -113,8 +113,29 @@ def to_artwork(item, image_size: int = 1024) -> Artwork:
     )
 
 
+def _get_page(session, params: dict, retries: int = 6) -> dict:
+    """Une page de l'API, en réessayant : l'API SMK renvoie parfois 503 ou coupe la réponse en route."""
+    import requests
+
+    for attempt in range(retries):
+        try:
+            r = session.get(API, params=params, timeout=60)
+            if r.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"{r.status_code} {r.reason}", response=r)
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError) as e:
+            if attempt == retries - 1:
+                raise
+            wait = min(60, 3 * 2 ** attempt)
+            print(f"  SMK : erreur à l'offset {params['offset']} ({e.__class__.__name__}), nouvel essai dans {wait} s",
+                  flush=True)
+            time.sleep(wait)
+    raise RuntimeError("inaccessible")
+
+
 def fetch(out_dir: str | Path, filters=("[has_image:true]", "[public_domain:true]"), rows: int = 100,
-          max_items: int | None = None, pause: float = 0.2) -> list[dict]:
+          max_items: int | None = None, pause: float = 0.2, retries: int = 6) -> list[dict]:
     """Télécharge les métadonnées brutes (pagination) et les sauvegarde dans raw.jsonl."""
     import requests
 
@@ -126,9 +147,7 @@ def fetch(out_dir: str | Path, filters=("[has_image:true]", "[public_domain:true
     s.headers["User-Agent"] = UA
     while found is None or offset < found:
         params = {"keys": "*", "offset": offset, "rows": rows, "lang": "en", "filters": ",".join(filters)}
-        r = s.get(API, params=params, timeout=60)
-        r.raise_for_status()
-        data = r.json()
+        data = _get_page(s, params, retries=retries)
         found = data.get("found", 0)
         batch = data.get("items") or []
         if not batch:

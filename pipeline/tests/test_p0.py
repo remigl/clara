@@ -248,3 +248,30 @@ def test_legacy_cache_derivation(tmp_path):
     np.savez(tmp_path / "met_mini_m.npz", vectors=legacy, n=5)
     x = met.raw_database(Fake(), None, [("p", str(i)) for i in range(5)], tmp_path / "met_mini_m-cls.npz")
     assert x.shape == (5, 4) and np.allclose(x, l2n(legacy[:, :4]))
+
+
+def test_smk_fetch_retries(tmp_path, monkeypatch):
+    import requests
+    calls = {"n": 0}
+
+    class R:
+        def __init__(self, code, data=None):
+            self.status_code, self._d, self.reason = code, data, "x"
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return self._d
+
+    def fake_get(self, url, params=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return R(503)
+        if calls["n"] == 2:
+            raise requests.exceptions.ChunkedEncodingError("coupé")
+        off = params["offset"]
+        return R(200, {"found": 3, "items": [{"object_number": f"K{off + i}"} for i in range(min(2, 3 - off))]})
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    monkeypatch.setattr(smk.time, "sleep", lambda s: None)
+    items = smk.fetch(tmp_path, rows=2)
+    assert [i["object_number"] for i in items] == ["K0", "K1", "K2"]
