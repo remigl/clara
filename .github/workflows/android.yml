@@ -39,24 +39,19 @@ jobs:
           key: smk-data-${{ github.run_id }}
           restore-keys: smk-data-
 
-      - name: Modèle DINOv2 et pack SMK
+      - name: Modèle DINOv2 et pack SMK (embarqué dans l'app)
         working-directory: pipeline
         run: |
           set -o pipefail
           pip install -q -r requirements.txt
           python -m clara_p0 download-model --variant dinov2-small 2>&1 | tee -a ../ci.log
-          OPTS="--model models/dinov2-small.onnx --projection none --pooling cls"
-          # l'API SMK est parfois instable : en dernier recours, notices de la compilation précédente (cache)
-          if ! python -m clara_p0 build-smk $OPTS 2>&1 | tee -a ../ci.log; then
-            test -f cache/smk/raw.jsonl || exit 1
-            echo "API SMK indisponible : notices en cache réutilisées" | tee -a ../ci.log
-            python -m clara_p0 build-smk $OPTS --offline-raw 2>&1 | tee -a ../ci.log
-          fi
+          python -m clara_p0 build-catalog --only dk-smk --model models/dinov2-small.onnx \
+            --projection none --pooling cls 2>&1 | tee -a ../ci.log
 
       - name: Assets de l'app
         run: |
           set -o pipefail
-          bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1 pipeline/models/dinov2-small.onnx 2>&1 | tee -a ci.log
+          bash app/tool/prepare_assets.sh pipeline/packs/dk-smk-v1.zip pipeline/models/dinov2-small.onnx 2>&1 | tee -a ci.log
 
       - uses: actions/setup-java@v5
         with:

@@ -161,7 +161,7 @@ def cmd_build_smk(a):
 
 
 def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", city=None, country_name=None,
-                        offline_raw=False, wikipedia=True, max_images=None):
+                        offline_raw=False, wikipedia=True, max_images=None, keypoints=True):
     from . import pack
     from .sources import wikidata
     raw_dir = Path(cache) / f"wikidata_{museum_id}"
@@ -171,7 +171,8 @@ def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", c
     arts = wikidata.select(raw, museum_id, summaries=summaries)
     n_desc = sum(1 for a in arts if a.description_credit and "Wikipédia" in a.description_credit)
     print(f"Wikidata {qid} ({museum.name}, {museum.city}) : {len(arts)} peintures, {n_desc} avec résumé Wikipédia")
-    return pack.build(museum, [wikidata.SOURCE], arts, emb, out, cache, version=version, max_images=max_images)
+    return pack.build(museum, [wikidata.SOURCE], arts, emb, out, cache, version=version, max_images=max_images,
+                      keypoints=keypoints)
 
 
 def cmd_build_wikidata(a):

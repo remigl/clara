@@ -1,6 +1,7 @@
 """Wikidata (CC0) : source universelle de niveau 0 pour n'importe quel musée.
 
-Peintures (Q3305213) dont la collection (P195) est le musée, avec n° d'inventaire (P217),
+Peintures (Q3305213) dont la collection (P195) est le musée ou l'un de ses départements (P361*,
+ex. « Département des Peintures du Louvre »), avec n° d'inventaire (P217),
 image Commons (P18), créateur (P170) et ses dates, date (P571), dimensions, plus les détails
 des fiches : genre (P136), mouvement (P135), matériaux (P186), sujets (P180), nationalité de
 l'artiste (P27), et le résumé Wikipédia (CC BY-SA) quand l'œuvre a un article.
@@ -21,9 +22,8 @@ SOURCE = Source(id="wikidata", name="Wikidata", url="https://www.wikidata.org", 
 
 QUERY = """
 SELECT ?item ?itemLabel ?itemDescription ?inv ?image ?creator ?creatorLabel ?birth ?death ?inception ?height ?width WHERE {{
-  ?item wdt:P31 wd:Q3305213 ; wdt:P195 wd:{qid} .
-  OPTIONAL {{ ?item p:P217 ?invSt . ?invSt ps:P217 ?inv . OPTIONAL {{ ?invSt pq:P195 ?invColl . }}
-             FILTER(!BOUND(?invColl) || ?invColl = wd:{qid}) }}
+  ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} .
+  OPTIONAL {{ ?item wdt:P217 ?inv }}
   OPTIONAL {{ ?item wdt:P18 ?image }}
   OPTIONAL {{ ?item wdt:P170 ?creator . OPTIONAL {{ ?creator wdt:P569 ?birth }} OPTIONAL {{ ?creator wdt:P570 ?death }} }}
   OPTIONAL {{ ?item wdt:P571 ?inception }}
@@ -36,7 +36,7 @@ SELECT ?item ?itemLabel ?itemDescription ?inv ?image ?creator ?creatorLabel ?bir
 # une requête légère par propriété à valeurs multiples (évite l'explosion combinatoire des OPTIONAL)
 PROP_QUERY = """
 SELECT ?item ?vLabel WHERE {{
-  ?item wdt:P31 wd:Q3305213 ; wdt:P195 wd:{qid} ; {path} ?v .
+  ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} ; {path} ?v .
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
 }}
 """
@@ -49,7 +49,7 @@ PROPS = {  # libellé dans la fiche -> chemin SPARQL
 }
 SITELINK_QUERY = """
 SELECT ?item ?wiki ?title WHERE {{
-  ?item wdt:P31 wd:Q3305213 ; wdt:P195 wd:{qid} .
+  ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} .
   ?article schema:about ?item ; schema:isPartOf ?wiki ; schema:name ?title .
   VALUES ?wiki {{ <https://{lang}.wikipedia.org/> <https://en.wikipedia.org/> }}
 }}

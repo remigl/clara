@@ -11,10 +11,9 @@ M=android/app/src/main/AndroidManifest.xml
 grep -q 'android.permission.CAMERA' "$M" || \
   sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA"/>\n    <application#' "$M"
 sed -i 's/android:label="[^"]*"/android:label="Clara"/' "$M"
-# Garantie hors ligne : aucune permission Internet dans l'app publiée
-if grep -q 'android.permission.INTERNET' "$M"; then
-  sed -i '/android.permission.INTERNET/d' "$M"
-fi
+# Internet : uniquement pour télécharger le catalogue et les packs des musées (la reconnaissance reste locale)
+grep -q 'android.permission.INTERNET' "$M" || \
+  sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
 
 for G in android/app/build.gradle.kts android/app/build.gradle; do
   [ -f "$G" ] || continue

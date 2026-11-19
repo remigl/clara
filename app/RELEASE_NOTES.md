@@ -1,19 +1,16 @@
-**v0.1.1** — corrige le plantage au démarrage de la v0.1.0 (« Could not find an implementation for ConvInteger ») : l'app embarque maintenant le modèle DINOv2 complet, celui des mesures P0. L'APK est plus lourd (~120 Mo).
+**Clara v0.2.0 — plusieurs musées**
 
-Première version de Clara : reconnaître et collectionner les tableaux d'un musée, **100 % hors ligne**.
+**Nouveau**
+- **Musées à télécharger** : onglet « Musées », rangés par pays puis par ville. Un appui pour télécharger un musée ; ensuite tout fonctionne hors ligne. Le SMK (Copenhague) reste inclus dans l'app.
+- **Choisir où l'on scanne** : en haut de l'écran Scanner, le musée où tu es, ou « Reconnaître partout » (dans tous les musées téléchargés).
+- **Fiches détaillées** : texte de présentation (catalogue des conservateurs du SMK, ou Wikipédia pour les autres musées), artiste avec ses dates et sa nationalité, technique, support, dimensions, genre, mouvement, sujets représentés, salle quand le musée la publie. Image agrandissable.
+- **Ma collection par musée**, avec la progression de chacun.
 
-**Musée inclus** : SMK – Statens Museum for Kunst (Copenhague), peintures du domaine public actuellement exposées, avec leur salle.
+**Musées proposés** : Belgique (Bruxelles, Anvers), Danemark (Copenhague), France (Paris : Louvre, Orsay), Pays-Bas (Amsterdam, La Haye), Autriche (Vienne), Allemagne (Munich, Berlin), Espagne (Madrid), Royaume-Uni (Londres), Italie (Florence).
 
-**Ce que fait cette version**
-- Scanner un tableau avec l'appareil photo : reconnaissance sur le téléphone (DINOv2, ONNX Runtime), aucune photo envoyée nulle part.
-- « C'est bien celle-ci ? » : l'œuvre reconnue et deux alternatives ; tu confirmes, elle rejoint ta collection.
-- Ma collection et progression dans le musée (œuvres découvertes / œuvres exposées).
-- Liste et recherche des œuvres du musée, fiches, favoris, ajout manuel.
-- Aucune permission Internet : l'app ne peut pas se connecter.
+**À savoir**
+- Internet sert uniquement à télécharger la liste des musées et les musées eux-mêmes. Les photos ne quittent jamais le téléphone.
+- Hors SMK, les musées ne publient pas la liste des œuvres exposées : la progression porte sur toutes leurs peintures connues (Wikidata), certaines peuvent être en réserve.
+- Désinstalle la version précédente avant d'installer celle-ci (signature différente).
 
-**Limites connues**
-- Un seul musée, embarqué dans l'app.
-- Toujours une confirmation : l'ajout automatique arrivera avec la vérification géométrique (mesurée en P0, pas encore portée sur le téléphone).
-- Pas encore de visée continue : on appuie pour scanner.
-
-Installation : télécharger `clara-v0.1.1.apk` sur le téléphone Android (8.0 ou plus récent, 64 bits) et l'ouvrir ; autoriser l'installation depuis cette source si Android le demande.
+Installation : télécharger `clara-v0.2.0.apk` sur le téléphone Android (8.0 ou plus récent, 64 bits) et l'ouvrir.

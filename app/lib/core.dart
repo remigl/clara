@@ -1,10 +1,16 @@
-// Cœur hors ligne de Clara : pack musée (SQLite + vecteurs), modèle DINOv2 (ONNX Runtime),
-// collection de l'utilisateur. Même logique que la référence Python (pipeline/clara_p0).
+// Cœur de Clara : packs musées (SQLite + vecteurs), catalogue téléchargeable, modèle DINOv2
+// (ONNX Runtime), collection de l'utilisateur. Même logique que la référence Python (pipeline/clara_p0).
+//
+// Réseau : uniquement pour télécharger le catalogue et les packs, à la demande de l'utilisateur.
+// La reconnaissance, la collection et les fiches fonctionnent entièrement hors ligne.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -12,19 +18,56 @@ import 'package:onnxruntime_v2/onnxruntime_v2.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
-const String packId = 'dk-smk';
 const int inputSize = 224;
+const String catalogUrl = 'https://github.com/remigl/clara/releases/latest/download/catalog.json';
+const String packBaseUrl = 'https://github.com/remigl/clara/releases/latest/download/';
+const String embeddedPackAsset = 'assets/packs/dk-smk.zip';
+
+// ---------------------------------------------------------------------------- pays
+
+const Map<String, String> countryNames = {
+  'AT': 'Autriche', 'BE': 'Belgique', 'CH': 'Suisse', 'CZ': 'Tchéquie', 'DE': 'Allemagne', 'DK': 'Danemark',
+  'ES': 'Espagne', 'FI': 'Finlande', 'FR': 'France', 'GB': 'Royaume-Uni', 'GR': 'Grèce', 'HU': 'Hongrie',
+  'IE': 'Irlande', 'IT': 'Italie', 'LU': 'Luxembourg', 'NL': 'Pays-Bas', 'NO': 'Norvège', 'PL': 'Pologne',
+  'PT': 'Portugal', 'RO': 'Roumanie', 'SE': 'Suède', 'UK': 'Royaume-Uni',
+};
+
+String countryFlag(String iso) {
+  final code = iso.toUpperCase() == 'UK' ? 'GB' : iso.toUpperCase();
+  if (code.length != 2) return '🏛';
+  return String.fromCharCodes(code.codeUnits.map((c) => 0x1F1E6 + c - 65));
+}
+
+String countryLabel(String iso, [String? name]) =>
+    (name != null && name.isNotEmpty) ? name : (countryNames[iso.toUpperCase()] ?? iso);
+
+/// Clé de tri des noms en français (insensible aux accents et à la casse).
+String sortKey(String s) {
+  const from = 'àâäáãåçéèêëíìîïñóòôöõúùûüýÿœæ';
+  const to = 'aaaaaaceeeeiiiinooooouuuuyyoa';
+  final b = StringBuffer();
+  for (final ch in s.toLowerCase().split('')) {
+    final i = from.indexOf(ch);
+    b.write(i >= 0 ? to[i] : ch);
+  }
+  return b.toString();
+}
 
 // ---------------------------------------------------------------------------- œuvres
 
 class Artwork {
-  Artwork.fromRow(Row r)
+  Artwork.fromRow(Row r, this.pack)
       : id = r['id'] as String,
         museumId = r['museum_id'] as String,
         title = (r['title'] as String?) ?? 'Sans titre',
         artist = r['artist_display'] as String?,
+        artistLife = r['artist_life'] as String?,
+        artistNationality = r['artist_nationality'] as String?,
         date = r['date_display'] as String?,
         medium = r['medium'] as String?,
+        description = r['description'] as String?,
+        descriptionCredit = r['description_credit'] as String?,
+        facts = _parseFacts(r['facts_json'] as String?),
         room = r['room'] as String?,
         status = (r['exhibition_status'] as String?) ?? 'unknown',
         inventory = r['inventory_number'] as String?,
@@ -34,12 +77,18 @@ class Artwork {
         thumb = r['local_path'] as String?,
         credit = r['credit_line'] as String?;
 
+  final MuseumPack pack;
   final String id;
   final String museumId;
   final String title;
   final String? artist;
+  final String? artistLife;
+  final String? artistNationality;
   final String? date;
   final String? medium;
+  final String? description;
+  final String? descriptionCredit;
+  final List<(String, String)> facts;
   final String? room;
   final String status;
   final String? inventory;
@@ -49,7 +98,19 @@ class Artwork {
   final String? thumb;
   final String? credit;
 
-  String? get thumbAsset => thumb == null ? null : 'assets/packs/$packId/$thumb';
+  static List<(String, String)> _parseFacts(String? json) {
+    if (json == null || json.isEmpty) return const [];
+    try {
+      return [
+        for (final f in jsonDecode(json) as List)
+          if (f is List && f.length == 2) ('${f[0]}', '${f[1]}')
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  File? get thumbFile => thumb == null ? null : File('${pack.dir.path}/$thumb');
 
   String get place {
     if (room != null && room!.isNotEmpty) return room!;
@@ -61,8 +122,14 @@ class Artwork {
       case 'temporarily_absent':
         return 'Temporairement absente';
       default:
-        return 'Emplacement inconnu';
+        return '';
     }
+  }
+
+  String get artistLine {
+    final extra = [artistLife, artistNationality].whereType<String>().where((s) => s.isNotEmpty).join(', ');
+    final a = artist ?? 'Artiste inconnu';
+    return extra.isEmpty ? a : '$a ($extra)';
   }
 }
 
@@ -78,41 +145,38 @@ const String _artworkSelect =
 // ---------------------------------------------------------------------------- pack musée
 
 class MuseumPack {
-  MuseumPack._(this.manifest, this.db, this.dim, this.vectors, this.rowArtwork, this.museum);
+  MuseumPack._(this.dir, this.manifest, this.db, this.dim, this.vectors, this.rowArtwork, this.museum,
+      this._countable);
 
+  final Directory dir;
   final Map<String, dynamic> manifest;
   final Database db;
   final int dim;
   final Float32List vectors; // lignes déquantifiées, normalisées L2
   final List<String> rowArtwork;
   final Map<String, Object?> museum;
+  final Set<String> _countable;
 
-  String get museumId => museum['id'] as String;
-  String get name => (museum['name_local'] as String?) ?? (museum['name'] as String);
-  String get city => (museum['city'] as String?) ?? '';
+  String get id => manifest['id'] as String;
+  String get modelId => manifest['model_id'] as String;
+  int get version => manifest['version'] as int;
+  Map<String, dynamic> get _m => (manifest['museum'] as Map?)?.cast<String, dynamic>() ?? const {};
+  String get name => (museum['name_local'] as String?) ?? (museum['name'] as String? ?? id);
+  String get city => (_m['city'] as String?) ?? (museum['city'] as String?) ?? '';
+  String get country => (museum['country'] as String?) ?? '';
+  String get countryName => countryLabel(country, _m['country_name'] as String?);
   int get numberOfWorks => (museum['number_of_works'] as int?) ?? 0;
+  int get dataQuality => (museum['data_quality'] as int?) ?? 0;
+  bool get knowsDisplay => dataQuality >= 2;
+  bool countsForProgress(String artworkId) => _countable.contains(artworkId);
 
-  static Future<MuseumPack> load() async {
-    const base = 'assets/packs/$packId';
-    final manifest = jsonDecode(await rootBundle.loadString('$base/manifest.json')) as Map<String, dynamic>;
-    final dir = await getApplicationSupportDirectory();
-    final packDir = Directory('${dir.path}/packs/$packId');
-    final dbFile = File('${packDir.path}/catalog.db');
-    final stamp = File('${packDir.path}/.version-${manifest['version']}-${manifest['built_at']}');
-    if (!stamp.existsSync() || !dbFile.existsSync()) {
-      // SQLite a besoin d'un vrai fichier : copie unique depuis les assets (puis à chaque nouvelle version)
-      packDir.createSync(recursive: true);
-      final data = await rootBundle.load('$base/catalog.db');
-      await dbFile.writeAsBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes), flush: true);
-      await stamp.writeAsString('ok');
-    }
-    final db = sqlite3.open(dbFile.path, mode: OpenMode.readOnly);
+  static Future<MuseumPack> loadDir(Directory dir) async {
+    final manifest = jsonDecode(await File('${dir.path}/manifest.json').readAsString()) as Map<String, dynamic>;
+    final db = sqlite3.open('${dir.path}/catalog.db', mode: OpenMode.readOnly);
     final dim = manifest['embedding_dim'] as int;
-
-    final q = await rootBundle.load('$base/vectors.bin');
-    final qi = q.buffer.asInt8List(q.offsetInBytes, q.lengthInBytes);
-    final s = await rootBundle.load('$base/scales.bin');
-    final sd = ByteData.sublistView(s.buffer.asUint8List(s.offsetInBytes, s.lengthInBytes));
+    final qi = Int8List.fromList(await File('${dir.path}/vectors.bin').readAsBytes());
+    final sb = await File('${dir.path}/scales.bin').readAsBytes();
+    final sd = ByteData.sublistView(sb);
     final n = sd.lengthInBytes ~/ 4;
     final vectors = Float32List(n * dim);
     for (var i = 0; i < n; i++) {
@@ -133,19 +197,25 @@ class MuseumPack {
     final rows = db.select('SELECT row, artwork_id FROM artwork_embedding ORDER BY row');
     final rowArtwork = [for (final r in rows) r['artwork_id'] as String];
     if (rowArtwork.length != n) {
-      throw StateError('Pack incohérent : ${rowArtwork.length} lignes, $n vecteurs');
+      throw StateError('Pack ${manifest['id']} incohérent : ${rowArtwork.length} lignes, $n vecteurs');
     }
     final museum = Map<String, Object?>.from(db.select('SELECT * FROM museum LIMIT 1').first);
-    return MuseumPack._(manifest, db, dim, vectors, rowArtwork, museum);
+    final countable = {
+      for (final r in db.select('SELECT id FROM artwork WHERE counts_for_progress = 1')) r['id'] as String
+    };
+    return MuseumPack._(dir, manifest, db, dim, vectors, rowArtwork, museum, countable);
   }
+
+  void close() => db.dispose();
 
   Artwork? artwork(String id) {
     final r = db.select('$_artworkSelect WHERE a.id = ?', [id]);
-    return r.isEmpty ? null : Artwork.fromRow(r.first);
+    return r.isEmpty ? null : Artwork.fromRow(r.first, this);
   }
 
-  List<Artwork> all() =>
-      [for (final r in db.select('$_artworkSelect ORDER BY a.room IS NULL, a.room, a.title')) Artwork.fromRow(r)];
+  List<Artwork> all() => [
+        for (final r in db.select('$_artworkSelect ORDER BY a.room IS NULL, a.room, a.title')) Artwork.fromRow(r, this)
+      ];
 
   List<Artwork> searchText(String text) {
     final terms = text
@@ -157,16 +227,13 @@ class MuseumPack {
     if (terms.isEmpty) return all();
     final r = db.select(
         'SELECT a.*, i.local_path, i.credit_line FROM artwork_fts f JOIN artwork a ON a.rowid = f.rowid '
-        'LEFT JOIN artwork_image i ON i.artwork_id = a.id WHERE artwork_fts MATCH ? LIMIT 100',
+        'LEFT JOIN artwork_image i ON i.artwork_id = a.id WHERE artwork_fts MATCH ? LIMIT 200',
         [terms]);
-    return [for (final row in r) Artwork.fromRow(row)];
+    return [for (final row in r) Artwork.fromRow(row, this)];
   }
 
   /// Plus proches œuvres : max sur les vues de la requête et les vues de référence d'une même œuvre.
-  List<Candidate> nearest(List<Float32List> queries, {int k = 3}) {
-    for (final q in queries) {
-      if (q.length != dim) throw StateError('Dimension du modèle ${q.length} ≠ pack $dim');
-    }
+  List<(String, double)> nearestIds(List<Float32List> queries, {int k = 3}) {
     final best = <String, double>{};
     for (var i = 0; i < rowArtwork.length; i++) {
       final off = i * dim;
@@ -183,13 +250,186 @@ class MuseumPack {
       if (prev == null || m > prev) best[id] = m;
     }
     final sorted = best.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-    final out = <Candidate>[];
-    for (final e in sorted.take(k)) {
-      final a = artwork(e.key);
-      if (a != null) out.add(Candidate(a, e.value));
-    }
-    return out;
+    return [for (final e in sorted.take(k)) (e.key, e.value)];
   }
+}
+
+// ---------------------------------------------------------------------------- catalogue distant
+
+class RemotePack {
+  RemotePack(this.json);
+  final Map<String, dynamic> json;
+  String get id => json['id'] as String;
+  String get name => (json['name'] as String?) ?? id;
+  String get city => (json['city'] as String?) ?? '';
+  String get country => (json['country'] as String?) ?? '';
+  String get countryName => countryLabel(country, json['country_name'] as String?);
+  int get version => (json['version'] as num?)?.toInt() ?? 1;
+  int get works => (json['works'] as num?)?.toInt() ?? 0;
+  int get recognizable => (json['recognizable'] as num?)?.toInt() ?? 0;
+  int get bytes => (json['bytes'] as num?)?.toInt() ?? 0;
+  String get file => json['file'] as String;
+  String get sha256 => (json['sha256'] as String?) ?? '';
+  String get modelId => (json['model_id'] as String?) ?? '';
+  int get dataQuality => (json['data_quality'] as num?)?.toInt() ?? 0;
+}
+
+String formatBytes(int b) {
+  if (b >= 1e9) return '${(b / 1e9).toStringAsFixed(1)} Go';
+  if (b >= 1e6) return '${(b / 1e6).toStringAsFixed(0)} Mo';
+  return '${(b / 1e3).toStringAsFixed(0)} Ko';
+}
+
+class PackStore {
+  PackStore(this.root);
+  final Directory root;
+
+  static Future<PackStore> open() async {
+    final dir = await getApplicationSupportDirectory();
+    final root = Directory('${dir.path}/packs')..createSync(recursive: true);
+    return PackStore(root);
+  }
+
+  File get catalogCache => File('${root.path}/catalog.json');
+
+  Directory dirOf(String id) => Directory('${root.path}/$id');
+
+  List<Directory> installedDirs() => [
+        for (final e in root.listSync())
+          if (e is Directory && !e.path.contains('.tmp-') && File('${e.path}/manifest.json').existsSync()) e
+      ];
+
+  Map<String, dynamic>? installedManifest(String id) {
+    final f = File('${dirOf(id).path}/manifest.json');
+    if (!f.existsSync()) return null;
+    try {
+      return jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Installe un pack depuis les octets d'un zip (remplace l'éventuelle version précédente).
+  Future<String> installZipBytes(Uint8List bytes) async {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final manifestFile = archive.files.firstWhere((f) => f.name == 'manifest.json',
+        orElse: () => throw const FormatException('manifest.json absent du pack'));
+    final manifest = jsonDecode(utf8.decode(manifestFile.content as List<int>)) as Map<String, dynamic>;
+    final id = manifest['id'] as String;
+    final tmp = Directory('${root.path}/.tmp-$id');
+    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    tmp.createSync(recursive: true);
+    for (final f in archive.files) {
+      if (!f.isFile) continue;
+      final name = f.name.replaceAll('\\', '/');
+      if (name.contains('..')) continue; // sécurité : pas de sortie du dossier
+      final out = File('${tmp.path}/$name');
+      out.parent.createSync(recursive: true);
+      out.writeAsBytesSync(f.content as List<int>);
+    }
+    final dest = dirOf(id);
+    if (dest.existsSync()) dest.deleteSync(recursive: true);
+    tmp.renameSync(dest.path);
+    return id;
+  }
+
+  /// Pack embarqué dans l'app (SMK) : installé au premier lancement, et à chaque nouvelle version de l'app.
+  Future<void> installEmbedded() async {
+    ByteData data;
+    try {
+      data = await rootBundle.load(embeddedPackAsset);
+    } catch (_) {
+      return; // app construite sans pack embarqué
+    }
+    final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final mf = archive.files.firstWhere((f) => f.name == 'manifest.json');
+    final m = jsonDecode(utf8.decode(mf.content as List<int>)) as Map<String, dynamic>;
+    final current = installedManifest(m['id'] as String);
+    if (current != null &&
+        current['model_id'] == m['model_id'] &&
+        ((current['built_at'] as String?) ?? '').compareTo((m['built_at'] as String?) ?? '') >= 0) {
+      return;
+    }
+    await installZipBytes(bytes);
+  }
+
+  void delete(String id) {
+    final d = dirOf(id);
+    if (d.existsSync()) d.deleteSync(recursive: true);
+  }
+
+  Future<List<RemotePack>?> cachedCatalog() async {
+    if (!catalogCache.existsSync()) return null;
+    try {
+      return _parseCatalog(await catalogCache.readAsString());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<RemotePack> _parseCatalog(String body) {
+    final j = jsonDecode(body) as Map<String, dynamic>;
+    final model = j['model_id'] as String?;
+    return [
+      for (final p in (j['packs'] as List? ?? const []))
+        RemotePack({'model_id': model, ...(p as Map).cast<String, dynamic>()})
+    ];
+  }
+
+  Future<List<RemotePack>> fetchCatalog() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final req = await client.getUrl(Uri.parse(catalogUrl));
+      final res = await req.close();
+      if (res.statusCode != 200) throw HttpException('catalogue indisponible (HTTP ${res.statusCode})');
+      final body = await res.transform(utf8.decoder).join();
+      final packs = _parseCatalog(body);
+      await catalogCache.writeAsString(body);
+      return packs;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Télécharge, vérifie (SHA-256) et installe un pack. onProgress(reçus, total).
+  Future<String> download(RemotePack p, void Function(int, int) onProgress) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    final tmp = File('${root.path}/.download-${p.id}.zip');
+    try {
+      final req = await client.getUrl(Uri.parse('$packBaseUrl${p.file}'));
+      final res = await req.close();
+      if (res.statusCode != 200) throw HttpException('téléchargement impossible (HTTP ${res.statusCode})');
+      final total = res.contentLength > 0 ? res.contentLength : p.bytes;
+      final sink = tmp.openWrite();
+      final digestSink = _DigestSink();
+      final hasher = sha256.startChunkedConversion(digestSink);
+      var received = 0;
+      await for (final chunk in res) {
+        sink.add(chunk);
+        hasher.add(chunk);
+        received += chunk.length;
+        onProgress(received, total);
+      }
+      await sink.close();
+      hasher.close();
+      if (p.sha256.isNotEmpty && digestSink.value.toString() != p.sha256) {
+        throw const FormatException('fichier corrompu (empreinte SHA-256 différente), réessaie');
+      }
+      return await installZipBytes(await tmp.readAsBytes());
+    } finally {
+      client.close();
+      if (tmp.existsSync()) tmp.deleteSync();
+    }
+  }
+}
+
+class _DigestSink implements Sink<Digest> {
+  late Digest value;
+  @override
+  void add(Digest data) => value = data;
+  @override
+  void close() {}
 }
 
 // ---------------------------------------------------------------------------- modèle
@@ -267,13 +507,12 @@ class Embedder {
     try {
       for (final o in outputs) {
         final v = o?.value;
-        // last_hidden_state : [1, 1 + patchs, dim] -> jeton CLS = [0][0]
         if (v is List && v.isNotEmpty && v[0] is List && (v[0] as List).isNotEmpty && (v[0] as List)[0] is List) {
           final cls = ((v[0] as List)[0] as List).map((e) => (e as num).toDouble()).toList();
           return l2normalize(cls);
         }
       }
-      final v = outputs.first?.value as List; // repli : sortie 2D [1, dim]
+      final v = outputs.first?.value as List;
       return l2normalize((v[0] as List).map((e) => (e as num).toDouble()).toList());
     } finally {
       for (final o in outputs) {
@@ -299,10 +538,24 @@ class UserStore {
     db.execute('''CREATE TABLE IF NOT EXISTS scan (
       id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, museum_id TEXT, artwork_id TEXT,
       score REAL, decision TEXT NOT NULL, candidates_json TEXT)''');
+    db.execute('''CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT)''');
     return UserStore._(db);
   }
 
   static String _now() => DateTime.now().toUtc().toIso8601String();
+
+  String? getSetting(String key) {
+    final r = db.select('SELECT value FROM setting WHERE key = ?', [key]);
+    return r.isEmpty ? null : r.first['value'] as String?;
+  }
+
+  void setSetting(String key, String? value) {
+    if (value == null) {
+      db.execute('DELETE FROM setting WHERE key = ?', [key]);
+    } else {
+      db.execute('INSERT INTO setting VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value]);
+    }
+  }
 
   /// Retourne true si l'œuvre est nouvelle dans la collection.
   bool collect(String artworkId, String museumId, String via) {
@@ -316,8 +569,10 @@ class UserStore {
     return true;
   }
 
-  List<String> collectedIds() =>
-      [for (final r in db.select('SELECT artwork_id FROM collected ORDER BY last_seen_at DESC')) r['artwork_id'] as String];
+  List<(String, String)> collected() => [
+        for (final r in db.select('SELECT artwork_id, museum_id FROM collected ORDER BY last_seen_at DESC'))
+          (r['artwork_id'] as String, r['museum_id'] as String)
+      ];
 
   bool isFavorite(String id) => db.select('SELECT 1 FROM favorite WHERE artwork_id = ?', [id]).isNotEmpty;
 
@@ -329,8 +584,9 @@ class UserStore {
     }
   }
 
-  void logScan(String museumId, List<Candidate> c, String decision, {String? chosen}) {
-    db.execute('INSERT INTO scan (created_at, museum_id, artwork_id, score, decision, candidates_json) VALUES (?,?,?,?,?,?)', [
+  void logScan(String? museumId, List<Candidate> c, String decision, {String? chosen}) {
+    db.execute(
+        'INSERT INTO scan (created_at, museum_id, artwork_id, score, decision, candidates_json) VALUES (?,?,?,?,?,?)', [
       _now(),
       museumId,
       chosen,
@@ -343,38 +599,112 @@ class UserStore {
 
 // ---------------------------------------------------------------------------- état de l'app
 
-class AppState extends ChangeNotifier {
-  AppState._(this.pack, this.embedder, this.store) {
-    _collected = store.collectedIds();
-  }
+const String everywhere = '*';
 
-  final MuseumPack pack;
-  final Embedder embedder;
+class AppState extends ChangeNotifier {
+  AppState._(this.store, this.packStore, this.embedder);
+
   final UserStore store;
-  late List<String> _collected;
+  final PackStore packStore;
+  final Embedder embedder;
+  final Map<String, MuseumPack> packs = {};
+  List<RemotePack>? catalog;
+  String? catalogError;
+  bool catalogLoading = false;
+  final Map<String, double> downloads = {}; // id -> progression 0..1
+  late List<(String, String)> _collected;
+  late Set<String> _collectedIds;
 
   static Future<AppState> load() async {
-    final pack = await MuseumPack.load();
-    final embedder = await Embedder.load();
     final store = await UserStore.open();
-    return AppState._(pack, embedder, store);
+    final packStore = await PackStore.open();
+    await packStore.installEmbedded();
+    final embedder = await Embedder.load();
+    final s = AppState._(store, packStore, embedder);
+    for (final d in packStore.installedDirs()) {
+      try {
+        final p = await MuseumPack.loadDir(d);
+        s.packs[p.id] = p;
+      } catch (e) {
+        debugPrint('pack ${d.path} illisible : $e');
+      }
+    }
+    s._refreshCollected();
+    s.catalog = await packStore.cachedCatalog();
+    unawaited(s.refreshCatalog());
+    return s;
   }
 
-  List<String> get collectedIds => _collected;
-  bool isCollected(String id) => _collected.contains(id);
+  /// model_id commun (pack embarqué) : les packs du catalogue doivent avoir le même.
+  String? get modelId => packs.values.isEmpty ? null : packs.values.first.modelId;
 
-  int get collectedCount {
-    final ids = _collected.toSet();
-    final r = pack.db.select('SELECT id FROM artwork WHERE counts_for_progress = 1');
-    return r.where((row) => ids.contains(row['id'])).length;
+  void _refreshCollected() {
+    _collected = store.collected();
+    _collectedIds = {for (final c in _collected) c.$1};
   }
 
-  double get progress => pack.numberOfWorks == 0 ? 0 : collectedCount / pack.numberOfWorks;
+  // --- musée courant
 
-  List<Artwork> collectedArtworks() => [
-        for (final id in _collected)
-          if (pack.artwork(id) != null) pack.artwork(id)!
+  String get currentId {
+    final v = store.getSetting('current_museum');
+    if (v == everywhere) return everywhere;
+    if (v != null && packs.containsKey(v)) return v;
+    return packs.isEmpty ? everywhere : sortedPacks().first.id;
+  }
+
+  MuseumPack? get current => currentId == everywhere ? null : packs[currentId];
+
+  void setCurrent(String id) {
+    store.setSetting('current_museum', id);
+    notifyListeners();
+  }
+
+  List<MuseumPack> sortedPacks() => packs.values.toList()
+    ..sort((a, b) {
+      final c = sortKey(a.countryName).compareTo(sortKey(b.countryName));
+      if (c != 0) return c;
+      final v = sortKey(a.city).compareTo(sortKey(b.city));
+      return v != 0 ? v : sortKey(a.name).compareTo(sortKey(b.name));
+    });
+
+  // --- collection
+
+  bool isCollected(String id) => _collectedIds.contains(id);
+
+  int collectedCount(MuseumPack p) =>
+      _collected.where((c) => c.$2 == p.id && p.countsForProgress(c.$1)).length;
+
+  double progress(MuseumPack p) => p.numberOfWorks == 0 ? 0 : collectedCount(p) / p.numberOfWorks;
+
+  /// Œuvres collectionnées d'un musée (seulement si son pack est installé).
+  List<Artwork> collectedIn(MuseumPack p) => [
+        for (final c in _collected)
+          if (c.$2 == p.id)
+            if (p.artwork(c.$1) case final a?) a
       ];
+
+  /// Nombre d'œuvres collectionnées par musée, pack installé ou non.
+  Map<String, int> collectedByMuseum() {
+    final m = <String, int>{};
+    for (final c in _collected) {
+      m[c.$2] = (m[c.$2] ?? 0) + 1;
+    }
+    return m;
+  }
+
+  bool add(Artwork a, {String via = 'scan'}) {
+    final isNew = store.collect(a.id, a.museumId, via);
+    _refreshCollected();
+    notifyListeners();
+    return isNew;
+  }
+
+  void toggleFavorite(String id) {
+    store.toggleFavorite(id);
+    notifyListeners();
+  }
+
+  // --- reconnaissance
 
   Future<List<Candidate>> recognize(Uint8List jpeg) async {
     final views = await compute(prepareViews, jpeg);
@@ -382,18 +712,70 @@ class AppState extends ChangeNotifier {
     for (final v in views) {
       q.add(await embedder.embed(v));
     }
-    return pack.nearest(q, k: 3);
+    final targets = current != null ? [current!] : packs.values.toList();
+    final all = <(MuseumPack, String, double)>[];
+    for (final p in targets) {
+      if (q.isNotEmpty && q.first.length != p.dim) continue; // pack d'un autre modèle
+      for (final (id, s) in p.nearestIds(q, k: 3)) {
+        all.add((p, id, s));
+      }
+    }
+    all.sort((a, b) => b.$3.compareTo(a.$3));
+    return [
+      for (final (p, id, s) in all.take(3))
+        if (p.artwork(id) case final a?) Candidate(a, s)
+    ];
   }
 
-  bool add(String artworkId, {String via = 'scan'}) {
-    final isNew = store.collect(artworkId, pack.museumId, via);
-    _collected = store.collectedIds();
+  // --- catalogue et téléchargements
+
+  Future<void> refreshCatalog() async {
+    if (catalogLoading) return;
+    catalogLoading = true;
     notifyListeners();
-    return isNew;
+    try {
+      catalog = await packStore.fetchCatalog();
+      catalogError = null;
+    } catch (e) {
+      catalogError = 'Catalogue en ligne indisponible ($e)';
+    } finally {
+      catalogLoading = false;
+      notifyListeners();
+    }
   }
 
-  void toggleFavorite(String id) {
-    store.toggleFavorite(id);
+  bool isCompatible(RemotePack r) => modelId == null || r.modelId.isEmpty || r.modelId == modelId;
+
+  bool hasUpdate(RemotePack r) {
+    final p = packs[r.id];
+    return p != null && isCompatible(r) && r.version > p.version;
+  }
+
+  Future<void> download(RemotePack r) async {
+    if (downloads.containsKey(r.id)) return;
+    downloads[r.id] = 0;
+    notifyListeners();
+    var last = DateTime.now();
+    try {
+      await packStore.download(r, (got, total) {
+        if (DateTime.now().difference(last).inMilliseconds > 200) {
+          last = DateTime.now();
+          downloads[r.id] = total > 0 ? got / total : 0;
+          notifyListeners();
+        }
+      });
+      packs.remove(r.id)?.close();
+      packs[r.id] = await MuseumPack.loadDir(packStore.dirOf(r.id));
+    } finally {
+      downloads.remove(r.id);
+      notifyListeners();
+    }
+  }
+
+  void remove(String id) {
+    packs.remove(id)?.close();
+    packStore.delete(id);
+    if (store.getSetting('current_museum') == id) store.setSetting('current_museum', null);
     notifyListeners();
   }
 }

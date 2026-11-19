@@ -109,7 +109,7 @@ def download_images(artworks: list[Artwork], cache_dir: Path, workers: int = 4) 
 def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedder: Embedder,
           out_dir: str | Path, cache_dir: str | Path = "cache", version: int = 1,
           views=DEFAULT_REFERENCE_VIEWS, thumbs: bool = True, embed_restricted: bool = False,
-          zip_pack: bool = True, max_images: int | None = None) -> Path:
+          zip_pack: bool = True, max_images: int | None = None, keypoints: bool = True) -> Path:
     """Construit un pack. Par défaut (politique v1, ARCHITECTURE.md §3.2), seules les images « open »
     sont encodées et affichées ; les autres œuvres restent dans le catalogue, sans image."""
     t0 = time.perf_counter()
@@ -150,7 +150,8 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
         for vi, (name, v) in enumerate(reference_views(img, views)):
             batch_imgs.append(v)
             batch_rows.append((a.id, vi, name))
-        kps[a.id] = verifier.extract(img)
+        if keypoints:  # descripteurs SIFT (~70 Ko/œuvre) : utiles au PC, pas encore à l'app
+            kps[a.id] = verifier.extract(img)
         if thumbs and a.image_rights_class == "open":
             t = resize_max(img, 512)
             rel = f"thumbs/{hashlib.sha1(a.id.encode()).hexdigest()[:16]}.webp"
@@ -166,7 +167,7 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
 
     index.save(pack_dir)
     (pack_dir / "rows.json").unlink()  # la correspondance lignes -> œuvres vit dans catalog.db
-    offsets = kps.save(pack_dir / "keypoints.bin")
+    offsets = kps.save(pack_dir / "keypoints.bin") if keypoints else {}
 
     db = sqlite3.connect(pack_dir / "catalog.db")
     db.executescript(catalog_schema())
@@ -274,7 +275,8 @@ class Pack:
         self.index.q = np.fromfile(self.dir / "vectors.bin", np.int8).reshape(len(rows), dim)
         self.index.scale = np.fromfile(self.dir / "scales.bin", np.float32)
         offsets = {r["artwork_id"]: (r["offset"], r["length"]) for r in self.db.execute("SELECT * FROM artwork_keypoints")}
-        self.keypoints = KeypointStore.load(self.dir / "keypoints.bin", offsets)
+        kp_file = self.dir / "keypoints.bin"
+        self.keypoints = KeypointStore.load(kp_file, offsets) if kp_file.exists() else None
 
     def artwork(self, aid: str) -> dict | None:
         r = self.db.execute("SELECT * FROM artwork WHERE id = ?", (aid,)).fetchone()

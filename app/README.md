@@ -1,7 +1,8 @@
 # Clara — app Android (Flutter)
 
-Version 0.1 : un musée embarqué (SMK), scan par photo, confirmation, collection, progression, recherche.
-Tout fonctionne hors ligne ; l'app n'a pas la permission Internet.
+Version 0.2 : musées téléchargeables (rangés par pays puis ville), un musée embarqué (SMK), scan par photo
+dans le musée choisi ou partout, fiches détaillées, collection et progression par musée.
+Internet ne sert qu'à télécharger le catalogue et les packs ; tout le reste fonctionne hors ligne.
 
 ## Construction automatique
 
@@ -25,7 +26,14 @@ cd app && bash tool/configure_android.sh && flutter run
 
 Le pack et l'app doivent utiliser **le même modèle** et le même réglage (CLS, sans projection en v0.1).
 
+## Packs et catalogue
+
+`.github/workflows/packs.yml` construit un pack par musée de `pipeline/museums.json` et `catalog.json`.
+À la publication d'une release, ils y sont joints ; l'app lit
+`https://github.com/remigl/clara/releases/latest/download/catalog.json`.
+Les packs doivent être construits avec le même modèle que l'app (vérifié via `model_id`).
+
 ## Code
 
-- `lib/core.dart` : pack musée (SQLite + vecteurs int8), DINOv2 via ONNX Runtime, collection (`user.db`).
-- `lib/screens.dart` : Scanner, Ma collection, Musée, fiche d'œuvre.
+- `lib/core.dart` : packs (SQLite + vecteurs int8), catalogue et téléchargements, DINOv2 via ONNX Runtime, collection (`user.db`).
+- `lib/screens.dart` : Scanner (choix du musée), Ma collection, Musées (pays → ville), fiche d'œuvre.
