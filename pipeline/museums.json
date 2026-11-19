@@ -1,0 +1,26 @@
+{
+  "_doc": "Musées proposés dans l'app. source = smk (API SMK, salles connues) ou wikidata (qid du musée, niveau 0). Le nom affiché vient de Wikidata ; city et country_name forcent la ville et le pays affichés.",
+  "museums": [
+    {"id": "dk-smk", "source": "smk", "country": "DK", "country_name": "Danemark", "city": "Copenhague"},
+
+    {"id": "be-mrbab", "source": "wikidata", "qid": "Q377500", "country_name": "Belgique", "city": "Bruxelles"},
+    {"id": "be-kmska", "source": "wikidata", "qid": "Q1471477", "country_name": "Belgique", "city": "Anvers"},
+
+    {"id": "fr-louvre", "source": "wikidata", "qid": "Q19675", "country_name": "France", "city": "Paris"},
+    {"id": "fr-orsay", "source": "wikidata", "qid": "Q23402", "country_name": "France", "city": "Paris"},
+
+    {"id": "nl-rijksmuseum", "source": "wikidata", "qid": "Q190804", "country_name": "Pays-Bas", "city": "Amsterdam"},
+    {"id": "nl-vangogh", "source": "wikidata", "qid": "Q224124", "country_name": "Pays-Bas", "city": "Amsterdam"},
+    {"id": "nl-mauritshuis", "source": "wikidata", "qid": "Q221092", "country_name": "Pays-Bas", "city": "La Haye"},
+
+    {"id": "at-khm", "source": "wikidata", "qid": "Q95569", "country_name": "Autriche", "city": "Vienne"},
+    {"id": "at-belvedere", "source": "wikidata", "qid": "Q303139", "country_name": "Autriche", "city": "Vienne"},
+
+    {"id": "de-altepinakothek", "source": "wikidata", "qid": "Q154568", "country_name": "Allemagne", "city": "Munich"},
+    {"id": "de-gemaeldegalerie", "source": "wikidata", "qid": "Q165631", "country_name": "Allemagne", "city": "Berlin"},
+
+    {"id": "es-prado", "source": "wikidata", "qid": "Q160112", "country_name": "Espagne", "city": "Madrid"},
+    {"id": "gb-nationalgallery", "source": "wikidata", "qid": "Q180788", "country_name": "Royaume-Uni", "city": "Londres"},
+    {"id": "it-uffizi", "source": "wikidata", "qid": "Q51252", "country_name": "Italie", "city": "Florence"}
+  ]
+}

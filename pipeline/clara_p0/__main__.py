@@ -160,15 +160,29 @@ def cmd_build_smk(a):
     pack.build(smk.MUSEUM, [smk.SOURCE], arts, _embedder(a), a.out, a.cache, version=a.version)
 
 
-def cmd_build_wikidata(a):
+def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", city=None, country_name=None,
+                        offline_raw=False, wikipedia=True, max_images=None):
     from . import pack
     from .sources import wikidata
-    raw_dir = Path(a.cache) / f"wikidata_{a.id}"
-    museum = wikidata.museum(a.qid, a.id, lang=a.lang)
-    rows = wikidata.load_raw(raw_dir) if a.offline_raw else wikidata.fetch(a.qid, raw_dir, lang=a.lang)
-    arts = wikidata.select(rows, a.id)
-    print(f"Wikidata {a.qid} ({museum.name}) : {len(arts)} peintures")
-    pack.build(museum, [wikidata.SOURCE], arts, _embedder(a), a.out, a.cache, version=a.version)
+    raw_dir = Path(cache) / f"wikidata_{museum_id}"
+    museum = wikidata.museum(qid, museum_id, lang=lang, city=city, country_name=country_name)
+    raw = wikidata.load_raw(raw_dir) if offline_raw else wikidata.fetch(qid, raw_dir, lang=lang)
+    summaries = wikidata.wikipedia_summaries(raw, Path(cache) / f"wikipedia_{museum_id}.json") if wikipedia else {}
+    arts = wikidata.select(raw, museum_id, summaries=summaries)
+    n_desc = sum(1 for a in arts if a.description_credit and "Wikipédia" in a.description_credit)
+    print(f"Wikidata {qid} ({museum.name}, {museum.city}) : {len(arts)} peintures, {n_desc} avec résumé Wikipédia")
+    return pack.build(museum, [wikidata.SOURCE], arts, emb, out, cache, version=version, max_images=max_images)
+
+
+def cmd_build_wikidata(a):
+    build_wikidata_pack(a.qid, a.id, _embedder(a), a.out, a.cache, version=a.version, lang=a.lang, city=a.city,
+                        country_name=a.country_name, offline_raw=a.offline_raw, wikipedia=not a.no_wikipedia,
+                        max_images=a.max_images)
+
+
+def cmd_build_catalog(a):
+    from . import catalog
+    catalog.build_all(a.registry, _embedder(a), a.out, a.cache, only=a.only, version=a.version)
 
 
 def cmd_recognize(a):
@@ -251,8 +265,20 @@ def main(argv=None):
             p.add_argument("--max-items", type=int)
         else:
             p.add_argument("--qid", required=True); p.add_argument("--id", required=True)
-            p.add_argument("--lang", default="fr")
+            p.add_argument("--lang", default="fr"); p.add_argument("--city"); p.add_argument("--country-name")
+            p.add_argument("--no-wikipedia", action="store_true"); p.add_argument("--max-images", type=int)
         p.set_defaults(f=f)
+
+    p = sub.add_parser("build-catalog", help="construit les packs listés dans museums.json + catalog.json")
+    model_opts(p)
+    p.add_argument("--registry", default="museums.json"); p.add_argument("--out", default="packs")
+    p.add_argument("--cache", default="cache"); p.add_argument("--version", type=int, default=1)
+    p.add_argument("--only", help="un seul musée (id), pour la construction en parallèle")
+    p.set_defaults(f=cmd_build_catalog)
+
+    p = sub.add_parser("merge-catalog", help="assemble catalog.json à partir des packs construits séparément")
+    p.add_argument("--packs", default="packs"); p.add_argument("--registry", default="museums.json")
+    p.set_defaults(f=lambda a: __import__("clara_p0.catalog", fromlist=["x"]).merge(a.packs, a.registry))
 
     p = sub.add_parser("recognize"); model_opts(p)
     p.add_argument("--pack", required=True); p.add_argument("--calibration")

@@ -1,0 +1,103 @@
+name: Packs musées
+
+# Construit un pack par musée de pipeline/museums.json (en parallèle), assemble catalog.json et,
+# pour une release, met catalog.json et les packs en ligne : l'app les télécharge depuis
+# https://github.com/remigl/clara/releases/latest/download/catalog.json
+on:
+  push:
+    branches: [main]
+    paths: ['pipeline/**', '.github/workflows/packs.yml']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag d'une release existante où publier les packs (ex. v0.2.0), vide = simple construction"
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: packs-${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: ids
+        run: echo "ids=$(python3 -c "import json;print(json.dumps([m['id'] for m in json.load(open('pipeline/museums.json'))['museums']]))")" >> "$GITHUB_OUTPUT"
+
+  pack:
+    needs: list
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        id: ${{ fromJSON(needs.list.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Cache (métadonnées, images, résumés Wikipédia)
+        uses: actions/cache@v4
+        with:
+          path: pipeline/cache
+          key: pack-${{ matrix.id }}-${{ github.run_id }}
+          restore-keys: pack-${{ matrix.id }}-
+      - name: Pack ${{ matrix.id }}
+        working-directory: pipeline
+        run: |
+          set -o pipefail
+          pip install -q -r requirements.txt
+          python -m clara_p0 download-model --variant dinov2-small 2>&1 | tee -a ../ci.log
+          python -m clara_p0 build-catalog --only "${{ matrix.id }}" --model models/dinov2-small.onnx \
+            --projection none --pooling cls 2>&1 | tee -a ../ci.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack-${{ matrix.id }}
+          path: |
+            pipeline/packs/*.zip
+            pipeline/packs/*/manifest.json
+      - name: Journal en annotations
+        if: failure()
+        run: python3 .github/scripts/annotate_log.py ci.log
+
+  catalog:
+    needs: pack
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pack-*
+          path: pipeline/packs
+      - name: catalog.json
+        working-directory: pipeline
+        run: |
+          python3 -m clara_p0 merge-catalog --packs packs --registry museums.json
+          cat packs/catalog.json
+          ls -lh packs/*.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog
+          path: |
+            pipeline/packs/catalog.json
+            pipeline/packs/*.zip
+      - name: Publier dans la release
+        if: github.event_name == 'release' || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || inputs.release_tag }}
+          files: |
+            pipeline/packs/catalog.json
+            pipeline/packs/*.zip

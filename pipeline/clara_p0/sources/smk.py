@@ -22,7 +22,7 @@ UA = "clara-p0/0.1 (https://github.com/remigl/clara)"
 
 MUSEUM = Museum(
     id="dk-smk", name="National Gallery of Denmark", name_local="Statens Museum for Kunst",
-    city="Copenhague", country="DK", lat=55.68853, lon=12.57836, website="https://www.smk.dk",
+    city="Copenhague", country="DK", country_name="Danemark", lat=55.68853, lon=12.57836, website="https://www.smk.dk",
     data_quality=3,
 )
 SOURCE = Source(id="smk-api", name="SMK Open API", url="https://api.smk.dk", license="CC0 / PDM")
@@ -45,25 +45,76 @@ def _year(s):
 
 def _title(item):
     titles = item.get("titles") or []
-    for lang in ("en", "da"):
+    for langs in (("en", "engelsk", "english"), ("da", "dansk", "danish")):
         for t in titles:
-            if t.get("language") == lang and t.get("title"):
+            if (t.get("language") or "").lower() in langs and t.get("title"):
                 return t["title"]
     return _first(titles, "title") or item.get("object_number")
+
+
+def _artist_name(item, prod):
+    """« Cornelis Cornelisz. van Haarlem » plutôt que « Haarlem, Cornelis Cornelisz. van »."""
+    artists = item.get("artist")
+    if isinstance(artists, list) and artists and isinstance(artists[0], str):
+        return artists[0]
+    fore, sur = prod.get("creator_forename"), prod.get("creator_surname")
+    if fore and sur:
+        return f"{fore} {sur}"
+    return prod.get("creator") or "Anonyme"
+
+
+def _label_text(label: dict) -> str | None:
+    for k in ("text", "label", "value", "content"):
+        v = label.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    longest = max((v for v in label.values() if isinstance(v, str)), key=len, default="")
+    return longest.strip() if len(longest) > 80 else None
+
+
+def _description(item) -> tuple[str | None, str | None]:
+    """Texte de présentation : le texte de catalogue le plus récent (rédigé par les conservateurs du SMK)."""
+    labels = [l for l in item.get("labels") or [] if isinstance(l, dict) and _label_text(l)]
+    if not labels:
+        return None, None
+    cat = [l for l in labels if "CATALOGUE" in str(l.get("type", "")).upper()] or labels
+    best = max(cat, key=lambda l: (str(l.get("date", "")), len(_label_text(l) or "")))
+    src = best.get("source")
+    year = str(best.get("date", ""))[:4]
+    credit = "Texte : " + ", ".join(x for x in (src, year if year.isdigit() else None) if x) + " — SMK" if src else "Texte : SMK"
+    return _label_text(best), credit
+
+
+def _facts(item, prod) -> list[tuple[str, str]]:
+    facts = []
+    mats = [m for m in item.get("materials") or [] if isinstance(m, str)]
+    if mats:
+        facts.append(("Support", ", ".join(mats)))
+    acq = _year(item.get("acquisition_date"))
+    if acq:
+        facts.append(("Entrée au musée", str(acq)))
+    exh = [e for e in item.get("exhibitions") or [] if isinstance(e, dict)]
+    if exh:
+        names = [e.get("exhibition") or e.get("title") or e.get("name") for e in exh]
+        names = [n for n in names if isinstance(n, str)]
+        facts.append(("Expositions", f"{len(exh)}" + (f" (dont « {names[0]} »)" if names else "")))
+    return facts
 
 
 def _dimensions(item):
     h = w = None
     for d in item.get("dimensions") or []:
         typ, val, unit = (d.get("type") or "").lower(), d.get("value"), (d.get("unit") or "cm").lower()
+        if "brutto" in typ or "frame" in typ or "ramme" in typ:  # dimensions avec cadre : ignorées
+            continue
         try:
             v = float(str(val).replace(",", "."))
         except (TypeError, ValueError):
             continue
         v = v / 10 if unit == "mm" else v
-        if typ in ("højde", "height") and h is None:
+        if ("højde" in typ or "height" in typ) and h is None:
             h = v
-        elif typ in ("bredde", "width") and w is None:
+        elif ("bredde" in typ or "width" in typ) and w is None:
             w = v
     return h, w
 
@@ -87,12 +138,18 @@ def to_artwork(item, image_size: int = 1024) -> Artwork:
     room = item.get("current_location_name")
     pd = bool(item.get("public_domain"))
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    artist = _artist_name(item, prod)
+    desc, desc_credit = _description(item)
     return Artwork(
         museum_id=MUSEUM.id,
         inventory_number=item["object_number"],
         title=_title(item),
         source_id=SOURCE.id,
-        artist_display=prod.get("creator") or "Anonyme",
+        artist_display=artist,
+        artist_nationality=prod.get("creator_nationality"),
+        description=desc,
+        description_credit=desc_credit,
+        facts=_facts(item, prod),
         artist_birth_year=_year(prod.get("creator_date_of_birth")),
         artist_death_year=_year(prod.get("creator_date_of_death")),
         date_display=pdate.get("period"),
@@ -106,10 +163,10 @@ def to_artwork(item, image_size: int = 1024) -> Artwork:
         room=room,
         exhibition_status="on_display" if room else "not_on_display",
         status_checked_at=now,
-        source_url=f"https://open.smk.dk/artwork/image/{item['object_number']}",
+        source_url=item.get("frontend_url") or f"https://open.smk.dk/artwork/image/{item['object_number']}",
         image_url=_image_url(item, image_size) if item.get("has_image", True) else None,
         image_rights_uri=PDM if pd else item.get("rights"),
-        credit_line=f"{prod.get('creator') or 'Anonyme'}, SMK – Statens Museum for Kunst" + (" (domaine public)" if pd else ""),
+        credit_line=f"Image : SMK – Statens Museum for Kunst" + (" (domaine public)" if pd else ""),
     )
 
 
@@ -134,7 +191,7 @@ def _get_page(session, params: dict, retries: int = 6) -> dict:
     raise RuntimeError("inaccessible")
 
 
-def fetch(out_dir: str | Path, filters=("[has_image:true]", "[public_domain:true]"), rows: int = 100,
+def fetch(out_dir: str | Path, filters=("[has_image:true]",), rows: int = 100,
           max_items: int | None = None, pause: float = 0.2, retries: int = 6) -> list[dict]:
     """Télécharge les métadonnées brutes (pagination) et les sauvegarde dans raw.jsonl."""
     import requests

@@ -275,3 +275,33 @@ def test_smk_fetch_retries(tmp_path, monkeypatch):
     monkeypatch.setattr(smk.time, "sleep", lambda s: None)
     items = smk.fetch(tmp_path, rows=2)
     assert [i["object_number"] for i in items] == ["K0", "K1", "K2"]
+
+
+def test_wikidata_details_and_catalog(tmp_path):
+    from clara_p0 import catalog
+    b = lambda **kw: {k: {"value": v} for k, v in kw.items()}  # noqa: E731
+    raw = {"main": [b(item="http://www.wikidata.org/entity/Q1", itemLabel="La Joconde", inv="INV 779",
+                      itemDescription="tableau de Léonard de Vinci", death="1519-05-02T00:00:00Z", birth="1452-04-15T00:00:00Z",
+                      creatorLabel="Léonard de Vinci", image="http://commons.wikimedia.org/wiki/Special:FilePath/M.jpg"),
+                    b(item="http://www.wikidata.org/entity/Q2", itemLabel="Autre", inv="RF 1",
+                      itemDescription="peinture")],
+           "props": {"Genre": {"Q1": ["portrait"]}, "Matériaux": {"Q1": ["peinture à l'huile", "bois de peuplier"]},
+                     "_nationality": {"Q1": ["république de Florence"]}},
+           "sitelinks": {"Q1": {"fr": "La Joconde"}}, "lang": "fr"}
+    arts = wikidata.select(raw, "fr-test", summaries={"Q1": ("La Joconde est un portrait…" * 3, "fr")})
+    a = {x.id: x for x in arts}["fr-test:INV-779"]
+    assert a.description.startswith("La Joconde") and "Wikipédia (fr)" in a.description_credit
+    assert ("Genre", "portrait") in a.facts and a.medium == "peinture à l'huile, bois de peuplier"
+    assert a.artist_nationality == "république de Florence" and a.artist_life == "1452–1519"
+    assert {x.id: x for x in arts}["fr-test:RF-1"].description == "Peinture."
+
+    museum, arts2, _ = _synthetic_museum(tmp_path, n=12)
+    museum.country_name = "Belgique"
+    arts2[0].description, arts2[0].facts = "Un texte.", [("Genre", "paysage")]
+    d = pack.build(museum, [Source("test", "Test", "", "CC0")], arts2, ThumbEmbedder(), tmp_path / "packs", tmp_path / "cache")
+    row = sqlite3.connect(d / "catalog.db").execute(
+        "SELECT description, facts_json FROM artwork WHERE id = ?", (arts2[0].id,)).fetchone()
+    assert row[0] == "Un texte." and json.loads(row[1]) == [["Genre", "paysage"]]
+    cat = json.loads(catalog.merge(str(tmp_path / "packs")).read_text())
+    p = cat["packs"][0]
+    assert p["id"] == "xx-test" and p["country_name"] == "Belgique" and p["file"] == "xx-test-v1.zip" and p["bytes"] > 0

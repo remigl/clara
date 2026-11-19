@@ -41,6 +41,7 @@ class Museum:
     lat: float
     lon: float
     website: str | None = None
+    country_name: str | None = None   # nom du pays en français, pour l'app
     wikidata_qid: str | None = None
     name_local: str | None = None
     data_quality: int = 0
@@ -69,6 +70,9 @@ class Artwork:
     date_start: int | None = None
     date_end: int | None = None
     description: str | None = None
+    description_credit: str | None = None
+    artist_nationality: str | None = None
+    facts: list = field(default_factory=list)  # [(libellé, valeur)]
     medium: str | None = None
     height_cm: float | None = None
     width_cm: float | None = None
@@ -88,6 +92,15 @@ class Artwork:
     @property
     def id(self) -> str:
         return f"{self.museum_id}:{normalize_inventory(self.inventory_number)}"
+
+    @property
+    def artist_life(self) -> str | None:
+        b, d = self.artist_birth_year, self.artist_death_year
+        if b is None and d is None:
+            return None
+        if d is None:
+            return f"né en {b}"
+        return f"{b if b is not None else '?'}–{d}"
 
     @property
     def image_rights_class(self) -> str:

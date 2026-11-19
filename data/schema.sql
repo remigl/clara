@@ -69,7 +69,11 @@ CREATE TABLE artwork (
   date_display     TEXT,                 -- "vers 1872"
   date_start       INTEGER,
   date_end         INTEGER,
-  description      TEXT,
+  description      TEXT,                 -- texte de présentation (catalogue du musée, Wikipédia…)
+  description_credit TEXT,               -- auteur / licence du texte (ex. « Wikipédia, CC BY-SA 4.0 »)
+  artist_life      TEXT,                 -- « 1562–1638 »
+  artist_nationality TEXT,
+  facts_json       TEXT,                 -- détails affichés tels quels : [["Genre","portrait"], ["Mouvement","baroque"], …]
   inventory_number TEXT,
   medium           TEXT,
   height_cm        REAL,

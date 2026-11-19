@@ -52,7 +52,7 @@ def _sha256(path: Path) -> str:
 
 # --------------------------------------------------------------------------- images
 
-def _download(url: str, dest: Path, session, retries: int = 3) -> bool:
+def _download(url: str, dest: Path, session, retries: int = 5) -> bool:
     if dest.exists() and dest.stat().st_size > 0:
         return True
     if not url.startswith(("http://", "https://")):  # chemin local (tests, données déjà téléchargées)
@@ -65,6 +65,9 @@ def _download(url: str, dest: Path, session, retries: int = 3) -> bool:
     for attempt in range(retries):
         try:
             r = session.get(url, timeout=60)
+            if r.status_code == 429:  # Wikimedia limite le débit : on attend ce qu'il demande
+                time.sleep(min(float(r.headers.get("Retry-After") or 10), 60))
+                continue
             if r.status_code == 200 and r.content:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 tmp = dest.with_suffix(".part")
@@ -106,7 +109,7 @@ def download_images(artworks: list[Artwork], cache_dir: Path, workers: int = 4) 
 def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedder: Embedder,
           out_dir: str | Path, cache_dir: str | Path = "cache", version: int = 1,
           views=DEFAULT_REFERENCE_VIEWS, thumbs: bool = True, embed_restricted: bool = False,
-          zip_pack: bool = True) -> Path:
+          zip_pack: bool = True, max_images: int | None = None) -> Path:
     """Construit un pack. Par défaut (politique v1, ARCHITECTURE.md §3.2), seules les images « open »
     sont encodées et affichées ; les autres œuvres restent dans le catalogue, sans image."""
     t0 = time.perf_counter()
@@ -123,6 +126,12 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
     (pack_dir / "thumbs").mkdir(parents=True)
 
     eligible = [a for a in artworks if a.image_url and (embed_restricted or a.image_rights_class == "open")]
+    if max_images and len(eligible) > max_images:
+        # priorité aux œuvres les plus documentées (article Wikipédia, texte de catalogue)
+        eligible.sort(key=lambda a: (a.description_credit is None or "Wikidata" in (a.description_credit or ""),
+                                     a.exhibition_status != "on_display"))
+        print(f"  {len(eligible)} images disponibles, limitées à {max_images}")
+        eligible = eligible[:max_images]
     img_paths = download_images(eligible, Path(cache_dir) / "images")
 
     verifier = GeometricVerifier()
@@ -192,12 +201,15 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
         else:
             art_id = None
         db.execute("""INSERT INTO artwork (id,museum_id,collection_id,title,title_local,artist_id,artist_display,
-                      date_display,date_start,date_end,description,inventory_number,medium,height_cm,width_cm,
+                      date_display,date_start,date_end,description,description_credit,artist_life,artist_nationality,
+                      facts_json,inventory_number,medium,height_cm,width_cm,
                       object_type,room,floor,exhibition_status,status_source_id,status_checked_at,
                       counts_for_progress,wikidata_qid,source_id,source_url,updated_at)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (a.id, museum.id, colls.get(a.collection), a.title, None, art_id, a.artist_display,
-                    a.date_display, a.date_start, a.date_end, a.description, a.inventory_number, a.medium,
+                    a.date_display, a.date_start, a.date_end, a.description, a.description_credit, a.artist_life,
+                    a.artist_nationality, json.dumps([list(f) for f in a.facts], ensure_ascii=False) if a.facts else None,
+                    a.inventory_number, a.medium,
                     a.height_cm, a.width_cm, a.object_type, a.room, a.floor, a.exhibition_status,
                     a.source_id if a.exhibition_status != "unknown" else None, a.status_checked_at,
                     int(a.id in counted_ids), a.wikidata_qid, a.source_id, a.source_url, now))
@@ -220,6 +232,9 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
         "id": museum.id, "version": version, "built_at": now, "model_id": embedder.model_id,
         "embedding_dim": embedder.dim, "embedding_dtype": "int8", "reference_views": list(views),
         "data_quality": museum.data_quality,
+        "museum": {"id": museum.id, "name": museum.name, "name_local": museum.name_local, "city": museum.city,
+                   "country": museum.country, "country_name": museum.country_name, "lat": museum.lat, "lon": museum.lon,
+                   "website": museum.website},
         "counts": {"artworks": len(artworks), "recognizable": len(recognizable), "progress_denominator": len(counted),
                    "with_thumbnail": len(thumb_info), "vectors": len(index)},
         "files": {str(p.relative_to(pack_dir)).replace("\\", "/"): {"bytes": p.stat().st_size, "sha256": _sha256(p)}
