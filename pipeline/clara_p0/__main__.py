@@ -161,12 +161,13 @@ def cmd_build_smk(a):
 
 
 def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", city=None, country_name=None,
-                        offline_raw=False, wikipedia=True, max_images=None, keypoints=True):
+                        offline_raw=False, wikipedia=True, max_images=None, keypoints=True, country=None,
+                        match="collection"):
     from . import pack
     from .sources import wikidata
     raw_dir = Path(cache) / f"wikidata_{museum_id}"
-    museum = wikidata.museum(qid, museum_id, lang=lang, city=city, country_name=country_name)
-    raw = wikidata.load_raw(raw_dir) if offline_raw else wikidata.fetch(qid, raw_dir, lang=lang)
+    museum = wikidata.museum(qid, museum_id, lang=lang, city=city, country_name=country_name, country=country)
+    raw = wikidata.load_raw(raw_dir) if offline_raw else wikidata.fetch(qid, raw_dir, lang=lang, match=match)
     summaries = wikidata.wikipedia_summaries(raw, Path(cache) / f"wikipedia_{museum_id}.json") if wikipedia else {}
     arts = wikidata.select(raw, museum_id, summaries=summaries)
     n_desc = sum(1 for a in arts if a.description_credit and "Wikipédia" in a.description_credit)

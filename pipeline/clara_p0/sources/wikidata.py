@@ -20,9 +20,20 @@ SPARQL = "https://query.wikidata.org/sparql"
 UA = "clara-p0/0.1 (https://github.com/remigl/clara)"
 SOURCE = Source(id="wikidata", name="Wikidata", url="https://www.wikidata.org", license="CC0")
 
+# Les peintures d'un musée : par collection (musée ou département, P195/P361*), par lieu (P276 : tableaux
+# appartenant à une autre institution mais exposés là, ex. Alte Pinakothek), ou les deux.
+SCOPES = {
+    "collection": "?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} .",
+    "location": "?item wdt:P31 wd:Q3305213 ; wdt:P276 wd:{qid} .",
+    "both": "{{ ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} . }} UNION "
+            "{{ ?item wdt:P31 wd:Q3305213 ; wdt:P276 wd:{qid} . }}",
+}
+ITEMS_QUERY = "SELECT DISTINCT ?item WHERE {{ {scope} }}"
+BATCH = 250  # les détails sont demandés par lots : une seule requête pour 6 000 tableaux (Louvre) dépasse les limites
+
 QUERY = """
 SELECT ?item ?itemLabel ?itemDescription ?inv ?image ?creator ?creatorLabel ?birth ?death ?inception ?height ?width WHERE {{
-  ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} .
+  VALUES ?item {{ {values} }}
   OPTIONAL {{ ?item wdt:P217 ?inv }}
   OPTIONAL {{ ?item wdt:P18 ?image }}
   OPTIONAL {{ ?item wdt:P170 ?creator . OPTIONAL {{ ?creator wdt:P569 ?birth }} OPTIONAL {{ ?creator wdt:P570 ?death }} }}
@@ -36,7 +47,8 @@ SELECT ?item ?itemLabel ?itemDescription ?inv ?image ?creator ?creatorLabel ?bir
 # une requête légère par propriété à valeurs multiples (évite l'explosion combinatoire des OPTIONAL)
 PROP_QUERY = """
 SELECT ?item ?vLabel WHERE {{
-  ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} ; {path} ?v .
+  VALUES ?item {{ {values} }}
+  ?item {path} ?v .
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
 }}
 """
@@ -49,7 +61,7 @@ PROPS = {  # libellé dans la fiche -> chemin SPARQL
 }
 SITELINK_QUERY = """
 SELECT ?item ?wiki ?title WHERE {{
-  ?item wdt:P31 wd:Q3305213 ; wdt:P195/wdt:P361* wd:{qid} .
+  VALUES ?item {{ {values} }}
   ?article schema:about ?item ; schema:isPartOf ?wiki ; schema:name ?title .
   VALUES ?wiki {{ <https://{lang}.wikipedia.org/> <https://en.wikipedia.org/> }}
 }}
@@ -67,12 +79,26 @@ SELECT ?label ?coord ?website ?cityLabel ?countryCode WHERE {{
 """
 
 
-def _sparql(q: str) -> list[dict]:
+def _sparql(q: str, retries: int = 5) -> list[dict]:
+    """Requête SPARQL avec réessais : le service public coupe parfois les réponses ou répond 429/5xx."""
+    import time
+
     import requests
-    r = requests.get(SPARQL, params={"query": q, "format": "json"},
-                     headers={"User-Agent": UA, "Accept": "application/sparql-results+json"}, timeout=180)
-    r.raise_for_status()
-    return r.json()["results"]["bindings"]
+    for attempt in range(retries):
+        try:
+            r = requests.post(SPARQL, data={"query": q, "format": "json"},
+                              headers={"User-Agent": UA, "Accept": "application/sparql-results+json"}, timeout=180)
+            if r.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
+            r.raise_for_status()
+            return r.json()["results"]["bindings"]
+        except (requests.RequestException, ValueError) as e:
+            if attempt == retries - 1:
+                raise
+            wait = min(90, 5 * 2 ** attempt)
+            print(f"  Wikidata : {e.__class__.__name__}, nouvel essai dans {wait} s", flush=True)
+            time.sleep(wait)
+    return []
 
 
 def _v(b, k):
@@ -86,7 +112,7 @@ def _year(s):
 
 
 def museum(qid: str, museum_id: str, lang: str = "fr", city: str | None = None,
-           country_name: str | None = None) -> Museum:
+           country_name: str | None = None, country: str | None = None) -> Museum:
     b = _sparql(MUSEUM_QUERY.format(qid=qid, lang=lang))
     if not b:
         raise ValueError(f"musée {qid} introuvable sur Wikidata")
@@ -95,32 +121,40 @@ def museum(qid: str, museum_id: str, lang: str = "fr", city: str | None = None,
     if _v(b, "coord"):  # "Point(lon lat)"
         lon, lat = map(float, _v(b, "coord")[6:-1].split())
     return Museum(id=museum_id, name=_v(b, "label"), city=city or _v(b, "cityLabel") or "",
-                  country=_v(b, "countryCode") or "", country_name=country_name,
+                  country=country or _v(b, "countryCode") or "", country_name=country_name,
                   lat=lat, lon=lon, website=_v(b, "website"), wikidata_qid=qid, data_quality=0)
 
 
-def fetch(qid: str, out_dir: str | Path, lang: str = "fr") -> dict:
-    rows = _sparql(QUERY.format(qid=qid, lang=lang))
-    props: dict[str, dict[str, list[str]]] = {}
-    for name, path in PROPS.items():
-        try:
-            res = _sparql(PROP_QUERY.format(qid=qid, lang=lang, path=path))
-        except Exception as e:  # une propriété en échec ne bloque pas le pack
-            print(f"  Wikidata : {name} ignoré ({e.__class__.__name__})")
-            continue
-        d: dict[str, list[str]] = {}
-        for b in res:
-            q, v = _qid(_v(b, "item")), _v(b, "vLabel")
-            if q and v and not re.fullmatch(r"Q\d+", v) and v not in d.setdefault(q, []):
-                d[q].append(v)
-        props[name] = d
+def fetch(qid: str, out_dir: str | Path, lang: str = "fr", match: str = "collection") -> dict:
+    import time
+
+    items = sorted({_qid(_v(b, "item")) for b in _sparql(ITEMS_QUERY.format(scope=SCOPES[match].format(qid=qid)))})
+    print(f"  Wikidata : {len(items)} peintures ({match}), détails par lots de {BATCH}", flush=True)
+    rows: list[dict] = []
+    props: dict[str, dict[str, list[str]]] = {name: {} for name in PROPS}
     links: dict[str, dict[str, str]] = {}
-    try:
-        for b in _sparql(SITELINK_QUERY.format(qid=qid, lang=lang)):
-            wiki = "en" if "en.wikipedia" in (_v(b, "wiki") or "") else lang
-            links.setdefault(_qid(_v(b, "item")), {})[wiki] = _v(b, "title")
-    except Exception as e:
-        print(f"  Wikidata : articles Wikipédia ignorés ({e.__class__.__name__})")
+    for i in range(0, len(items), BATCH):
+        values = " ".join(f"wd:{q}" for q in items[i:i + BATCH])
+        rows += _sparql(QUERY.format(values=values, lang=lang))
+        for name, path in PROPS.items():
+            try:
+                res = _sparql(PROP_QUERY.format(values=values, lang=lang, path=path))
+            except Exception as e:  # une propriété en échec ne bloque pas le pack
+                print(f"  Wikidata : {name} ignoré pour ce lot ({e.__class__.__name__})")
+                continue
+            d = props[name]
+            for b in res:
+                q, v = _qid(_v(b, "item")), _v(b, "vLabel")
+                if q and v and not re.fullmatch(r"Q\d+", v) and v not in d.setdefault(q, []):
+                    d[q].append(v)
+        try:
+            for b in _sparql(SITELINK_QUERY.format(values=values, lang=lang)):
+                wiki = "en" if "en.wikipedia" in (_v(b, "wiki") or "") else lang
+                links.setdefault(_qid(_v(b, "item")), {})[wiki] = _v(b, "title")
+        except Exception as e:
+            print(f"  Wikidata : articles Wikipédia ignorés pour ce lot ({e.__class__.__name__})")
+        print(f"  Wikidata : {min(i + BATCH, len(items))}/{len(items)}", flush=True)
+        time.sleep(0.5)
     raw = {"main": rows, "props": props, "sitelinks": links, "lang": lang}
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)

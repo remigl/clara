@@ -50,7 +50,7 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
         d = build_wikidata_pack(entry["qid"], entry["id"], emb, out, cache, version=version,
                                 lang=entry.get("lang", "fr"), city=entry.get("city"),
                                 country_name=entry.get("country_name"), max_images=entry.get("max_images", 4000),
-                                keypoints=False)
+                                keypoints=False, country=entry.get("country"), match=entry.get("match", "collection"))
     else:
         raise ValueError(f"source inconnue : {entry['source']}")
     m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
