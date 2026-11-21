@@ -30,6 +30,15 @@ def _notice(msg: str) -> None:
         print(f"::notice title=pack::{msg}", flush=True)
 
 
+MAX_RAW_AGE_DAYS = float(os.environ.get("CLARA_MAX_RAW_AGE_DAYS", "7"))
+
+
+def _fresh(path: Path) -> bool:
+    """Données brutes récentes : réutilisées plutôt que retéléchargées (constructions bien plus rapides)."""
+    import time
+    return path.exists() and (time.time() - path.stat().st_mtime) < MAX_RAW_AGE_DAYS * 86400
+
+
 def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
     from . import pack
     from .__main__ import build_wikidata_pack
@@ -48,7 +57,11 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
         from .sources import smk
         raw_dir = Path(cache) / "smk"
         try:
-            items = smk.fetch(raw_dir)
+            if _fresh(raw_dir / "raw.jsonl"):
+                print("Notices SMK récentes en cache : réutilisées")
+                items = smk.load_raw(raw_dir)
+            else:
+                items = smk.fetch(raw_dir)
         except Exception:
             if not (raw_dir / "raw.jsonl").exists():
                 raise
@@ -57,7 +70,9 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
         arts = smk.select(items, paintings_only=True, on_display_only=True)
         if qid:  # croisement avec Wikidata par numéro d'inventaire : artistes, contexte, provenance, Wikipédia
             try:
-                raw = wikidata.fetch(qid, Path(cache) / f"wikidata_{entry['id']}", match=entry.get("match", "collection"))
+                wd_dir = Path(cache) / f"wikidata_{entry['id']}"
+                raw = (wikidata.load_raw(wd_dir) if _fresh(wd_dir / "raw.json")
+                       else wikidata.fetch(qid, wd_dir, match=entry.get("match", "collection")))
                 know = knowledge.gather(raw, Path(cache) / "knowledge.json")
                 n = wikidata.enrich_by_inventory(arts, raw, know, entry["id"])
                 _notice(f"{entry['id']} : {n}/{len(arts)} œuvres croisées avec Wikidata")
@@ -70,7 +85,8 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
                                 lang=entry.get("lang", "fr"), city=entry.get("city"),
                                 country_name=entry.get("country_name"), max_images=entry.get("max_images", 4000),
                                 keypoints=False, country=entry.get("country"), match=entry.get("match", "collection"),
-                                types=tuple(entry.get("types", ["painting"])))
+                                types=tuple(entry.get("types", ["painting"])),
+                                offline_raw=_fresh(Path(cache) / f"wikidata_{entry['id']}" / "raw.json"))
     else:
         raise ValueError(f"source inconnue : {entry['source']}")
     m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
