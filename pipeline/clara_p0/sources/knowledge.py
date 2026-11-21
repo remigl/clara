@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-UA = "clara-p0/0.1 (https://github.com/remigl/clara)"
+UA = "clara-p0/0.3 (https://github.com/remigl/clara; open data museum app)"
 
 
 def _trim(text: str, max_chars: int) -> str:

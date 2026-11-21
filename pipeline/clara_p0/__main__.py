@@ -173,8 +173,11 @@ def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", c
     arts = wikidata.select(raw, museum_id, know=know)
     n_desc = sum(1 for a in arts if a.description_credit and "Wikipédia" in a.description_credit)
     n_bio = sum(1 for a in arts if a.artist_bio)
-    print(f"Wikidata {qid} ({museum.name}, {museum.city}) : {len(arts)} œuvres, {n_desc} avec texte Wikipédia, "
-          f"{n_bio} avec biographie de l'artiste")
+    from .catalog import _notice
+    n_sec = sum(1 for a in arts if a.sections)
+    n_glo = sum(1 for a in arts if a.glossary)
+    _notice(f"{museum_id} : {len(arts)} œuvres ; texte Wikipédia {n_desc}, biographie de l'artiste {n_bio}, "
+            f"iconographie/création/provenance {n_sec}, notions expliquées {n_glo}")
     return pack.build(museum, [wikidata.SOURCE], arts, emb, out, cache, version=version, max_images=max_images,
                       keypoints=keypoints)
 

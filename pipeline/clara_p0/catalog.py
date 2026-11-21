@@ -38,7 +38,12 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
 
     qid = entry.get("qid")
     if not qid and entry.get("search"):
-        qid = wikidata.resolve_qid(entry["search"], entry.get("search_lang", "de"))
+        try:
+            qid = wikidata.resolve_qid(entry["search"], entry.get("search_lang", "de"))
+        except Exception as e:
+            if entry["source"] == "wikidata":
+                raise
+            print(f"Identifiant Wikidata introuvable ({e}) : pack sans croisement")  # SMK : le pack reste utilisable
     if entry["source"] == "smk":
         from .sources import smk
         raw_dir = Path(cache) / "smk"

@@ -23,7 +23,7 @@ from pathlib import Path
 from ..records import PDM, Artwork, Museum, Source, normalize_inventory
 
 SPARQL = "https://query.wikidata.org/sparql"
-UA = "clara-p0/0.1 (https://github.com/remigl/clara)"
+UA = "clara-p0/0.3 (https://github.com/remigl/clara; open data museum app)"
 SOURCE = Source(id="wikidata", name="Wikidata", url="https://www.wikidata.org", license="CC0")
 
 # Types d'œuvres (P31)
@@ -163,18 +163,26 @@ def _is_label(v: str | None) -> bool:
     return bool(v) and not re.fullmatch(r"Q\d+", v) and not v.startswith("http")
 
 
-def resolve_qid(search: str, lang: str = "de") -> str:
-    """Identifiant Wikidata d'une institution d'après son nom (premier résultat de la recherche)."""
+def resolve_qid(search: str, lang: str = "de", retries: int = 6) -> str:
+    """Identifiant Wikidata d'une institution d'après son nom (premier résultat de la recherche).
+    Réessaie avec pause : l'API limite le débit des robots (429) quand plusieurs constructions tournent."""
     import requests
-    r = requests.get("https://www.wikidata.org/w/api.php",
-                     params={"action": "wbsearchentities", "search": search, "language": lang, "type": "item",
-                             "limit": 1, "format": "json"}, headers={"User-Agent": UA}, timeout=30)
-    r.raise_for_status()
-    hits = r.json().get("search") or []
-    if not hits:
-        raise ValueError(f"aucun élément Wikidata pour « {search} »")
-    print(f"  Wikidata : « {search} » -> {hits[0]['id']} ({hits[0].get('label')}, {hits[0].get('description')})")
-    return hits[0]["id"]
+    for attempt in range(retries):
+        r = requests.get("https://www.wikidata.org/w/api.php",
+                         params={"action": "wbsearchentities", "search": search, "language": lang, "type": "item",
+                                 "limit": 1, "format": "json", "maxlag": 5}, headers={"User-Agent": UA}, timeout=30)
+        if r.status_code == 429 or (r.ok and "error" in r.json()):
+            wait = min(120, float(r.headers.get("Retry-After") or 0) or 10 * 2 ** attempt)
+            print(f"  Wikidata : recherche limitée, nouvel essai dans {wait:.0f} s", flush=True)
+            time.sleep(wait)
+            continue
+        r.raise_for_status()
+        hits = r.json().get("search") or []
+        if not hits:
+            raise ValueError(f"aucun élément Wikidata pour « {search} »")
+        print(f"  Wikidata : « {search} » -> {hits[0]['id']} ({hits[0].get('label')}, {hits[0].get('description')})")
+        return hits[0]["id"]
+    raise RuntimeError(f"recherche Wikidata impossible pour « {search} »")
 
 
 def museum(qid: str, museum_id: str, lang: str = "fr", city: str | None = None,
