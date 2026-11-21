@@ -40,8 +40,10 @@ jobs:
           import json, os, re
           ids = [m["id"] for m in json.load(open("pipeline/museums.json"))["museums"]]
           if os.environ["EVENT"] == "push":
-              m = re.search(r"\[packs(?::([^\]]+))?\]", os.environ.get("MSG", ""))
-              ids = [] if not m else ([i.strip() for i in m.group(1).split(",") if i.strip() in ids] if m.group(1) else ids)
+              tags = re.findall(r"\[packs(?::([^\]]+))?\]", os.environ.get("MSG", ""))
+              if "" not in tags:  # [packs] seul = tous ; sinon union des [packs:a,b]
+                  wanted = {i.strip() for t in tags for i in t.split(",")}
+                  ids = [i for i in ids if i in wanted]
           print("ids=" + json.dumps(ids))
           PY
 
