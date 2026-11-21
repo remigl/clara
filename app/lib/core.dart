@@ -68,6 +68,8 @@ class Artwork {
         description = r['description'] as String?,
         descriptionCredit = r['description_credit'] as String?,
         facts = _parseFacts(r['facts_json'] as String?),
+        sections = _parseSections(r['sections_json'] as String?),
+        artistId = r['artist_id'] as String?,
         room = r['room'] as String?,
         status = (r['exhibition_status'] as String?) ?? 'unknown',
         inventory = r['inventory_number'] as String?,
@@ -89,6 +91,8 @@ class Artwork {
   final String? description;
   final String? descriptionCredit;
   final List<(String, String)> facts;
+  final List<(String, List<(String, String)>)> sections;
+  final String? artistId;
   final String? room;
   final String status;
   final String? inventory;
@@ -104,6 +108,25 @@ class Artwork {
       return [
         for (final f in jsonDecode(json) as List)
           if (f is List && f.length == 2) ('${f[0]}', '${f[1]}')
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static List<(String, List<(String, String)>)> _parseSections(String? json) {
+    if (json == null || json.isEmpty) return const [];
+    try {
+      return [
+        for (final sec in jsonDecode(json) as List)
+          if (sec is List && sec.length == 2 && sec[1] is List)
+            (
+              '${sec[0]}',
+              [
+                for (final it in sec[1] as List)
+                  if (it is List && it.length == 2) ('${it[0]}', '${it[1]}')
+              ]
+            )
       ];
     } catch (_) {
       return const [];
@@ -131,6 +154,46 @@ class Artwork {
     final a = artist ?? 'Artiste inconnu';
     return extra.isEmpty ? a : '$a ($extra)';
   }
+}
+
+/// L'artiste, croisé depuis Wikidata et Wikipédia.
+class ArtistInfo {
+  ArtistInfo.fromRow(Row r)
+      : name = (r['name'] as String?) ?? 'Artiste inconnu',
+        birthYear = r['birth_year'] as int?,
+        deathYear = r['death_year'] as int?,
+        nationality = r['nationality'] as String?,
+        birthPlace = r['birth_place'] as String?,
+        deathPlace = r['death_place'] as String?,
+        occupations = r['occupations'] as String?,
+        movements = r['movements'] as String?,
+        teachers = r['teachers'] as String?,
+        students = r['students'] as String?,
+        bio = r['bio'] as String?,
+        bioCredit = r['bio_credit'] as String?;
+
+  final String name;
+  final int? birthYear, deathYear;
+  final String? nationality, birthPlace, deathPlace, occupations, movements, teachers, students, bio, bioCredit;
+
+  String? get lifeLine {
+    String part(int? y, String? place, String verb) =>
+        [if (y != null) '$verb en $y', if (place != null && place.isNotEmpty) 'à $place'].join(' ');
+    final born = part(birthYear, birthPlace, 'né');
+    final died = part(deathYear, deathPlace, 'mort');
+    final l = [born, died].where((x) => x.isNotEmpty).join(', ');
+    return l.isEmpty ? null : l[0].toUpperCase() + l.substring(1);
+  }
+
+  bool get hasDetails =>
+      [bio, birthPlace, deathPlace, movements, teachers, students, occupations].any((x) => x != null && x.isNotEmpty);
+}
+
+class GlossaryEntry {
+  GlossaryEntry(this.term, this.text, this.credit);
+  final String term;
+  final String text;
+  final String? credit;
 }
 
 class Candidate {
@@ -216,6 +279,38 @@ class MuseumPack {
   List<Artwork> all() => [
         for (final r in db.select('$_artworkSelect ORDER BY a.room IS NULL, a.room, a.title')) Artwork.fromRow(r, this)
       ];
+
+  ArtistInfo? artist(String? id) {
+    if (id == null) return null;
+    final r = db.select('SELECT * FROM artist WHERE id = ?', [id]);
+    return r.isEmpty ? null : ArtistInfo.fromRow(r.first);
+  }
+
+  /// Notions expliquées (mouvements, genres) liées à une œuvre. Les packs anciens n'ont pas ces tables.
+  List<GlossaryEntry> glossaryFor(String artworkId) {
+    try {
+      return [
+        for (final r in db.select(
+            'SELECT g.term, g.text, g.credit FROM artwork_glossary ag JOIN glossary g ON g.term = ag.term '
+            'WHERE ag.artwork_id = ?',
+            [artworkId]))
+          GlossaryEntry(r['term'] as String, r['text'] as String, r['credit'] as String?)
+      ];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// Autres œuvres du même artiste dans ce musée (celles avec image d'abord).
+  List<Artwork> otherWorksBy(String? artistId, String excludeId, {int limit = 20}) {
+    if (artistId == null) return const [];
+    return [
+      for (final r in db.select(
+          '$_artworkSelect WHERE a.artist_id = ? AND a.id != ? ORDER BY i.local_path IS NULL, a.date_start LIMIT ?',
+          [artistId, excludeId, limit]))
+        Artwork.fromRow(r, this)
+    ];
+  }
 
   List<Artwork> searchText(String text) {
     final terms = text

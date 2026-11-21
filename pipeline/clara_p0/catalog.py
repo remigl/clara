@@ -34,6 +34,11 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
     from . import pack
     from .__main__ import build_wikidata_pack
 
+    from .sources import knowledge, wikidata
+
+    qid = entry.get("qid")
+    if not qid and entry.get("search"):
+        qid = wikidata.resolve_qid(entry["search"], entry.get("search_lang", "de"))
     if entry["source"] == "smk":
         from .sources import smk
         raw_dir = Path(cache) / "smk"
@@ -45,12 +50,22 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
             print("API SMK indisponible : notices en cache réutilisées")
             items = smk.load_raw(raw_dir)
         arts = smk.select(items, paintings_only=True, on_display_only=True)
-        d = pack.build(smk.MUSEUM, [smk.SOURCE], arts, emb, out, cache, version=version, keypoints=False)
+        if qid:  # croisement avec Wikidata par numéro d'inventaire : artistes, contexte, provenance, Wikipédia
+            try:
+                raw = wikidata.fetch(qid, Path(cache) / f"wikidata_{entry['id']}", match=entry.get("match", "collection"))
+                know = knowledge.gather(raw, Path(cache) / "knowledge.json")
+                n = wikidata.enrich_by_inventory(arts, raw, know, entry["id"])
+                _notice(f"{entry['id']} : {n}/{len(arts)} œuvres croisées avec Wikidata")
+            except Exception as e:
+                print(f"Croisement Wikidata impossible ({e.__class__.__name__}: {e}) : pack sans enrichissement")
+        d = pack.build(smk.MUSEUM, [smk.SOURCE, wikidata.SOURCE], arts, emb, out, cache, version=version,
+                       keypoints=False)
     elif entry["source"] == "wikidata":
-        d = build_wikidata_pack(entry["qid"], entry["id"], emb, out, cache, version=version,
+        d = build_wikidata_pack(qid, entry["id"], emb, out, cache, version=version,
                                 lang=entry.get("lang", "fr"), city=entry.get("city"),
                                 country_name=entry.get("country_name"), max_images=entry.get("max_images", 4000),
-                                keypoints=False, country=entry.get("country"), match=entry.get("match", "collection"))
+                                keypoints=False, country=entry.get("country"), match=entry.get("match", "collection"),
+                                types=tuple(entry.get("types", ["painting"])))
     else:
         raise ValueError(f"source inconnue : {entry['source']}")
     m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))

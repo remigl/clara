@@ -1,7 +1,7 @@
 {
-  "_doc": "Musées proposés dans l'app. source = smk (API SMK, salles connues) ou wikidata (qid du musée, niveau 0). Le nom affiché vient de Wikidata ; city et country_name forcent la ville et le pays affichés. match = collection (P195, par défaut), location (P276) ou both.",
+  "_doc": "Musées proposés dans l'app. source = smk (API SMK, salles connues, croisée avec Wikidata) ou wikidata. qid = identifiant Wikidata du musée, ou search = nom à rechercher (résolu à la construction, vérifié dans les annotations). match = collection (P195, défaut), location (P276) ou both. types = painting (défaut), drawing, watercolor, pastel, miniature. city, country, country_name : affichage et tri dans l'app.",
   "museums": [
-    {"id": "dk-smk", "source": "smk", "country": "DK", "country_name": "Danemark", "city": "Copenhague"},
+    {"id": "dk-smk", "source": "smk", "search": "Statens Museum for Kunst", "search_lang": "da", "country": "DK", "country_name": "Danemark", "city": "Copenhague"},
     {"id": "be-mrbab", "source": "wikidata", "qid": "Q377500", "country": "BE", "country_name": "Belgique", "city": "Bruxelles"},
     {"id": "be-kmska", "source": "wikidata", "qid": "Q1471477", "country": "BE", "country_name": "Belgique", "city": "Anvers"},
     {"id": "fr-louvre", "source": "wikidata", "qid": "Q19675", "country": "FR", "country_name": "France", "city": "Paris"},
@@ -11,6 +11,11 @@
     {"id": "nl-mauritshuis", "source": "wikidata", "qid": "Q221092", "country": "NL", "country_name": "Pays-Bas", "city": "La Haye"},
     {"id": "at-khm", "source": "wikidata", "qid": "Q95569", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
     {"id": "at-belvedere", "source": "wikidata", "qid": "Q303139", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
+    {"id": "at-albertina", "source": "wikidata", "qid": "Q371908", "types": ["painting", "drawing", "watercolor", "pastel"], "country": "AT", "country_name": "Autriche", "city": "Vienne"},
+    {"id": "at-leopold", "source": "wikidata", "qid": "Q59435", "match": "both", "types": ["painting", "drawing", "watercolor"], "country": "AT", "country_name": "Autriche", "city": "Vienne"},
+    {"id": "at-wienmuseum", "source": "wikidata", "qid": "Q505873", "match": "both", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
+    {"id": "at-akademie", "source": "wikidata", "search": "Gemäldegalerie der Akademie der bildenden Künste Wien", "match": "both", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
+    {"id": "at-liechtenstein", "source": "wikidata", "search": "Liechtenstein Museum", "match": "both", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
     {"id": "de-altepinakothek", "source": "wikidata", "qid": "Q154568", "match": "both", "country": "DE", "country_name": "Allemagne", "city": "Munich"},
     {"id": "de-gemaeldegalerie", "source": "wikidata", "qid": "Q165631", "country": "DE", "country_name": "Allemagne", "city": "Berlin"},
     {"id": "es-prado", "source": "wikidata", "qid": "Q160112", "country": "ES", "country_name": "Espagne", "city": "Madrid"},

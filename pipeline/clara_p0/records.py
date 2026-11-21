@@ -73,6 +73,16 @@ class Artwork:
     description_credit: str | None = None
     artist_nationality: str | None = None
     facts: list = field(default_factory=list)  # [(libellé, valeur)]
+    sections: list = field(default_factory=list)  # [(titre, [(libellé, valeur)])] : iconographie, provenance…
+    glossary: list = field(default_factory=list)  # [(notion, texte, crédit)] : mouvements, genres expliqués
+    artist_bio: str | None = None
+    artist_bio_credit: str | None = None
+    artist_birth_place: str | None = None
+    artist_death_place: str | None = None
+    artist_movements: str | None = None
+    artist_teachers: str | None = None
+    artist_students: str | None = None
+    artist_occupations: str | None = None
     medium: str | None = None
     height_cm: float | None = None
     width_cm: float | None = None

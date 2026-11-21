@@ -28,6 +28,11 @@ Le pack et l'app doivent utiliser **le même modèle** et le même réglage (CLS
 
 ## Packs et catalogue
 
+Chaque fiche croise Wikidata (artiste, iconographie, création, provenance, expositions), Wikipédia
+(textes de l'œuvre, de l'artiste, des mouvements et genres), Iconclass et, pour le SMK, l'API du musée.
+Un push sur `main` dont le message contient `[packs]` (ou `[packs:id1,id2]`) construit des packs d'essai.
+
+
 `.github/workflows/packs.yml` construit un pack par musée de `pipeline/museums.json` et `catalog.json`.
 À la publication d'une release, ils y sont joints ; l'app lit
 `https://github.com/remigl/clara/releases/latest/download/catalog.json`.

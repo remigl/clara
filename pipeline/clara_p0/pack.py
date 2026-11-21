@@ -173,7 +173,7 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
     db.executescript(catalog_schema())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     recognizable = {r[0] for r in index.rows}
-    counted = [a for a in artworks if a.object_type == "painting" and a.exhibition_status in PROGRESS_STATUSES]
+    counted = [a for a in artworks if a.exhibition_status in PROGRESS_STATUSES]
     counted_ids = {a.id for a in counted}
 
     db.execute("INSERT INTO pack VALUES (?,?,?,?,?,?,?)",
@@ -197,19 +197,36 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
     for a in artworks:
         if a.artist_qid or a.artist_display:
             art_id = a.artist_qid or f"name:{a.artist_display}"
-            db.execute("INSERT OR IGNORE INTO artist VALUES (?,?,?,?)",
-                       (art_id, a.artist_display or "Anonyme", a.artist_birth_year, a.artist_death_year))
+            db.execute("""INSERT INTO artist (id,name,birth_year,death_year,nationality,birth_place,death_place,
+                          occupations,movements,teachers,students,bio,bio_credit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                          ON CONFLICT(id) DO UPDATE SET
+                            bio = COALESCE(artist.bio, excluded.bio), bio_credit = COALESCE(artist.bio_credit, excluded.bio_credit),
+                            birth_place = COALESCE(artist.birth_place, excluded.birth_place),
+                            death_place = COALESCE(artist.death_place, excluded.death_place),
+                            movements = COALESCE(artist.movements, excluded.movements),
+                            teachers = COALESCE(artist.teachers, excluded.teachers),
+                            students = COALESCE(artist.students, excluded.students),
+                            occupations = COALESCE(artist.occupations, excluded.occupations),
+                            nationality = COALESCE(artist.nationality, excluded.nationality)""",
+                       (art_id, a.artist_display or "Anonyme", a.artist_birth_year, a.artist_death_year,
+                        a.artist_nationality, a.artist_birth_place, a.artist_death_place, a.artist_occupations,
+                        a.artist_movements, a.artist_teachers, a.artist_students, a.artist_bio, a.artist_bio_credit))
         else:
             art_id = None
+        for term, text, credit in a.glossary:
+            db.execute("INSERT OR IGNORE INTO glossary VALUES (?,?,?)", (term, text, credit))
+            db.execute("INSERT OR IGNORE INTO artwork_glossary VALUES (?,?)", (a.id, term))
         db.execute("""INSERT INTO artwork (id,museum_id,collection_id,title,title_local,artist_id,artist_display,
                       date_display,date_start,date_end,description,description_credit,artist_life,artist_nationality,
-                      facts_json,inventory_number,medium,height_cm,width_cm,
+                      facts_json,sections_json,inventory_number,medium,height_cm,width_cm,
                       object_type,room,floor,exhibition_status,status_source_id,status_checked_at,
                       counts_for_progress,wikidata_qid,source_id,source_url,updated_at)
-                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (a.id, museum.id, colls.get(a.collection), a.title, None, art_id, a.artist_display,
                     a.date_display, a.date_start, a.date_end, a.description, a.description_credit, a.artist_life,
                     a.artist_nationality, json.dumps([list(f) for f in a.facts], ensure_ascii=False) if a.facts else None,
+                    json.dumps([[t, [list(i) for i in items]] for t, items in a.sections], ensure_ascii=False)
+                    if a.sections else None,
                     a.inventory_number, a.medium,
                     a.height_cm, a.width_cm, a.object_type, a.room, a.floor, a.exhibition_status,
                     a.source_id if a.exhibition_status != "unknown" else None, a.status_checked_at,

@@ -55,7 +55,28 @@ CREATE TABLE artist (
   id               TEXT PRIMARY KEY,     -- QID Wikidata si possible
   name             TEXT NOT NULL,
   birth_year       INTEGER,
-  death_year       INTEGER               -- sert au calcul domaine public (mort + 70 ans)
+  death_year       INTEGER,              -- sert au calcul domaine public (mort + 70 ans)
+  nationality      TEXT,
+  birth_place      TEXT,
+  death_place      TEXT,
+  occupations      TEXT,                 -- « peintre, graveur »
+  movements        TEXT,
+  teachers         TEXT,                 -- maîtres (P1066)
+  students         TEXT,                 -- élèves (P802)
+  bio              TEXT,                 -- introduction Wikipédia
+  bio_credit       TEXT
+);
+
+CREATE TABLE glossary (                  -- « pour comprendre » : mouvements, genres expliqués
+  term             TEXT PRIMARY KEY,
+  text             TEXT NOT NULL,
+  credit           TEXT
+);
+
+CREATE TABLE artwork_glossary (
+  artwork_id       TEXT NOT NULL,
+  term             TEXT NOT NULL,
+  PRIMARY KEY (artwork_id, term)
 );
 
 CREATE TABLE artwork (
@@ -74,6 +95,7 @@ CREATE TABLE artwork (
   artist_life      TEXT,                 -- « 1562–1638 »
   artist_nationality TEXT,
   facts_json       TEXT,                 -- détails affichés tels quels : [["Genre","portrait"], ["Mouvement","baroque"], …]
+  sections_json    TEXT,                 -- [["Provenance", [["1650–1700","X"], …]], ["Iconographie", …]]
   inventory_number TEXT,
   medium           TEXT,
   height_cm        REAL,

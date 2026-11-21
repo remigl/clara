@@ -31,10 +31,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - id: ids
-        run: echo "ids=$(python3 -c "import json;print(json.dumps([m['id'] for m in json.load(open('pipeline/museums.json'))['museums']]))")" >> "$GITHUB_OUTPUT"
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # push sur main : seulement si le message contient [packs] (tous) ou [packs:id1,id2] (quelques-uns)
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          ids = [m["id"] for m in json.load(open("pipeline/museums.json"))["museums"]]
+          if os.environ["EVENT"] == "push":
+              m = re.search(r"\[packs(?::([^\]]+))?\]", os.environ.get("MSG", ""))
+              ids = [] if not m else ([i.strip() for i in m.group(1).split(",") if i.strip() in ids] if m.group(1) else ids)
+          print("ids=" + json.dumps(ids))
+          PY
 
   pack:
     needs: list
+    if: needs.list.outputs.ids != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -72,8 +85,8 @@ jobs:
         run: python3 .github/scripts/annotate_log.py ci.log
 
   catalog:
-    needs: pack
-    if: always()
+    needs: [list, pack]
+    if: always() && needs.list.outputs.ids != '[]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

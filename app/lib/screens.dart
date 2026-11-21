@@ -800,10 +800,21 @@ class ArtworkScreen extends StatelessWidget {
   final AppState state;
   final Artwork artwork;
 
+  static const _sectionIcons = {
+    'Iconographie': Icons.auto_stories_outlined,
+    'Création': Icons.brush_outlined,
+    'Provenance': Icons.history_edu_outlined,
+    'Expositions': Icons.event_outlined,
+    'Sur Wikipédia': Icons.menu_book_outlined,
+  };
+
   @override
   Widget build(BuildContext context) {
     final a = artwork;
     final theme = Theme.of(context);
+    final artist = a.pack.artist(a.artistId);
+    final glossary = a.pack.glossaryFor(a.id);
+    final others = a.pack.otherWorksBy(a.artistId, a.id);
     return ListenableBuilder(
       listenable: state,
       builder: (context, _) {
@@ -823,6 +834,27 @@ class ArtworkScreen extends StatelessWidget {
           ('Emplacement', a.place),
           ('Inventaire', a.inventory),
         ];
+        Widget heading(String t, IconData icon) => Padding(
+              padding: const EdgeInsets.only(top: 24, bottom: 8),
+              child: Row(children: [
+                Icon(icon, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(t, style: theme.textTheme.titleMedium),
+              ]),
+            );
+        Widget row(String label, String value) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: label.isEmpty
+                  ? Text(value, style: theme.textTheme.bodyMedium?.copyWith(height: 1.4))
+                  : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      SizedBox(width: 120, child: Text(label, style: theme.textTheme.labelLarge)),
+                      Expanded(child: Text(value)),
+                    ]),
+            );
+        Widget credit(String? c) => c == null
+            ? const SizedBox.shrink()
+            : Padding(padding: const EdgeInsets.only(top: 6), child: Text(c, style: theme.textTheme.bodySmall));
+
         return Scaffold(
           appBar: AppBar(
             title: Text(a.pack.name, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -834,7 +866,7 @@ class ArtworkScreen extends StatelessWidget {
               ),
             ],
           ),
-          body: ListView(padding: const EdgeInsets.all(16), children: [
+          body: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), children: [
             GestureDetector(
               onTap: a.thumbFile == null
                   ? null
@@ -870,32 +902,94 @@ class ArtworkScreen extends StatelessWidget {
                   showAdded(context, state, a, isNew);
                 },
               ),
+
+            // --- l'œuvre
             if (a.description != null && a.description!.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              Text('À propos', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 6),
+              heading('À propos', Icons.info_outline),
               Text(a.description!, style: theme.textTheme.bodyLarge?.copyWith(height: 1.45)),
-              if (a.descriptionCredit != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(a.descriptionCredit!, style: theme.textTheme.bodySmall),
+              credit(a.descriptionCredit),
+            ],
+            heading('Détails', Icons.list_alt_outlined),
+            for (final (label, value) in facts)
+              if (value != null && value.isNotEmpty) row(label, value),
+
+            // --- sections croisées : iconographie, création, provenance, expositions…
+            for (final (title, items) in a.sections)
+              if (items.isNotEmpty) ...[
+                heading(title, _sectionIcons[title] ?? Icons.notes_outlined),
+                for (final (label, value) in items)
+                  if (label == 'Source') credit(value) else row(label, value),
+              ],
+
+            // --- l'artiste
+            if (artist != null && artist.hasDetails) ...[
+              heading('L\'artiste : ${artist.name}', Icons.person_outline),
+              if (artist.lifeLine != null) row('', artist.lifeLine!),
+              if (artist.occupations != null) row('Métier', artist.occupations!),
+              if (artist.nationality != null) row('Nationalité', artist.nationality!),
+              if (artist.movements != null) row('Mouvements', artist.movements!),
+              if (artist.teachers != null) row('Maîtres', artist.teachers!),
+              if (artist.students != null) row('Élèves', artist.students!),
+              if (artist.bio != null) ...[
+                const SizedBox(height: 8),
+                Text(artist.bio!, style: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
+                credit(artist.bioCredit),
+              ],
+            ],
+            if (others.isNotEmpty) ...[
+              heading('Du même artiste, ici', Icons.collections_outlined),
+              SizedBox(
+                height: 150,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: others.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (context, i) {
+                    final o = others[i];
+                    return InkWell(
+                      onTap: () => openArtwork(context, state, o),
+                      child: SizedBox(
+                        width: 110,
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(
+                            child: Stack(fit: StackFit.expand, children: [
+                              ClipRRect(borderRadius: BorderRadius.circular(8), child: artThumb(o)),
+                              if (state.isCollected(o.id))
+                                const Positioned(
+                                    right: 4, top: 4, child: Icon(Icons.check_circle, color: Colors.white, size: 18)),
+                            ]),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(o.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
+                        ]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+
+            // --- pour comprendre : mouvements et genres expliqués
+            if (glossary.isNotEmpty) ...[
+              heading('Pour comprendre', Icons.school_outlined),
+              for (final g in glossary)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ExpansionTile(
+                    title: Text(g.term[0].toUpperCase() + g.term.substring(1)),
+                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(g.text, style: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
+                      credit(g.credit),
+                    ],
+                  ),
                 ),
             ],
-            const SizedBox(height: 20),
-            Text('Détails', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            for (final (label, value) in facts)
-              if (value != null && value.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    SizedBox(width: 120, child: Text(label, style: theme.textTheme.labelLarge)),
-                    Expanded(child: Text(value)),
-                  ]),
-                ),
-            const SizedBox(height: 20),
+
+            heading('Sources', Icons.link),
             if (a.credit != null) Text(a.credit!, style: theme.textTheme.bodySmall),
-            if (a.sourceUrl != null) SelectableText('Source : ${a.sourceUrl}', style: theme.textTheme.bodySmall),
+            if (a.sourceUrl != null) SelectableText(a.sourceUrl!, style: theme.textTheme.bodySmall),
           ]),
         );
       },

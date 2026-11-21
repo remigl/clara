@@ -305,3 +305,55 @@ def test_wikidata_details_and_catalog(tmp_path):
     cat = json.loads(catalog.merge(str(tmp_path / "packs")).read_text())
     p = cat["packs"][0]
     assert p["id"] == "xx-test" and p["country_name"] == "Belgique" and p["file"] == "xx-test-v1.zip" and p["bytes"] > 0
+
+
+def test_wikidata_format2_enrichment_and_pack(tmp_path):
+    from clara_p0.sources import knowledge
+    b = lambda **kw: {k: {"value": v} for k, v in kw.items()}  # noqa: E731
+    raw = {
+        "format": 2, "lang": "fr",
+        "main": [b(item="http://www.wikidata.org/entity/Q10", itemLabel="La Ronde de nuit", inv="SK-C-5",
+                   creator="http://www.wikidata.org/entity/Q5598", creatorLabel="Rembrandt",
+                   birth="1606-07-15T00:00:00Z", death="1669-10-04T00:00:00Z",
+                   image="http://commons.wikimedia.org/wiki/Special:FilePath/N.jpg")],
+        "props": {"Mouvement": {"Q10": [["Q37853", "baroque"]]}, "Genre": {"Q10": [["Q2", "portrait de groupe"]]},
+                  "Commanditaire": {"Q10": [["Q3", "compagnie de Frans Banninck Cocq"]]},
+                  "Expositions": {"Q10": [["Q4", "Rembrandt 400"]]}},
+        "iconclass": {"Q10": ["45C"]},
+        "provenance": {"Q10": [["Kloveniersdoelen", 1642, 1715], ["Rijksmuseum", 1808, None]]},
+        "sitelinks": {"Q10": {"fr": "La Ronde de nuit"}},
+        "creators": {"Q5598": {"birth_place": [["Q1", "Leyde"]], "death_place": [["Q9", "Amsterdam"]],
+                               "teachers": [["Q7", "Pieter Lastman"]], "movements": [["Q37853", "baroque"]],
+                               "sitelinks": {"fr": "Rembrandt"}}},
+        "topics": {"Q37853": {"label": "baroque", "sitelinks": {"fr": "Baroque"}}, "Q2": {"label": "portrait de groupe"}},
+    }
+    know = {"art": {"Q10": ("La Ronde de nuit est un tableau…", "fr")},
+            "creator": {"Q5598": ("Rembrandt est un peintre…", "fr")},
+            "topic": {"Q37853": ("Le baroque est un mouvement…", "fr")}, "iconclass": {"45C": "armes"}}
+    a = wikidata.select(raw, "nl-test", know=know)[0]
+    secs = dict(a.sections)
+    assert ("Iconclass", "armes") in secs["Iconographie"]
+    assert secs["Provenance"][0] == ("1642–1715", "Kloveniersdoelen") and secs["Provenance"][1] == ("depuis 1808", "Rijksmuseum")
+    assert ("Commanditaire", "compagnie de Frans Banninck Cocq") in secs["Création"]
+    assert a.artist_bio.startswith("Rembrandt") and a.artist_birth_place == "Leyde" and a.artist_teachers == "Pieter Lastman"
+    assert [g[0] for g in a.glossary] == ["baroque"]
+
+    # croisement par inventaire (ex. API SMK)
+    other = Artwork(museum_id="nl-test", inventory_number="SK-C-5", title="The Night Watch", source_id="x",
+                    description="Texte du musée.", description_credit="Musée")
+    assert wikidata.enrich_by_inventory([other], raw, know, "nl-test") == 1
+    assert other.description == "Texte du musée." and other.artist_bio and other.wikidata_qid == "Q10"
+    assert dict(other.sections)["Sur Wikipédia"][0][1].startswith("La Ronde")
+
+    # pack : artiste, glossaire, sections
+    museum, arts, _ = _synthetic_museum(tmp_path, n=6)
+    arts[0].artist_qid, arts[0].artist_bio, arts[0].glossary = "Q5598", "Bio.", [("baroque", "Le baroque…", "Wikipédia")]
+    arts[0].sections = [("Provenance", [("1642–1715", "X")])]
+    d = pack.build(museum, [Source("test", "Test", "", "CC0")], arts, ThumbEmbedder(), tmp_path / "p", tmp_path / "c")
+    db = sqlite3.connect(d / "catalog.db")
+    assert db.execute("SELECT bio FROM artist WHERE id='Q5598'").fetchone()[0] == "Bio."
+    assert db.execute("SELECT term FROM artwork_glossary WHERE artwork_id=?", (arts[0].id,)).fetchone()[0] == "baroque"
+    assert json.loads(db.execute("SELECT sections_json FROM artwork WHERE id=?", (arts[0].id,)).fetchone()[0]) == \
+        [["Provenance", [["1642–1715", "X"]]]]
+    assert knowledge._trim("a" * 50 + "\n" + "b" * 50 + "\n" + "c" * 50, 120) == "a" * 50 + "\n\n" + "b" * 50
+    assert "VALUES ?type { wd:Q3305213 wd:Q93184 }" in wikidata.scope("Q1", "both", ("painting", "drawing"))
