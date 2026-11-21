@@ -19,5 +19,15 @@ for G in android/app/build.gradle.kts android/app/build.gradle; do
   [ -f "$G" ] || continue
   sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' "$G"
 done
+# Version de Kotlin : le gabarit Flutter récent demande une version absente des dépôts (2.3.20 introuvable,
+# 21/11/2026). On impose une version publiée, compatible avec l'Android Gradle Plugin du gabarit.
+KOTLIN_VERSION="${KOTLIN_VERSION:-2.2.21}"
+for S in android/settings.gradle.kts android/settings.gradle; do
+  [ -f "$S" ] || continue
+  sed -i -E "s/(id\(\"org.jetbrains.kotlin.android\"\) version \")[^\"]+/\1${KOTLIN_VERSION}/" "$S"
+  sed -i -E "s/(id \"org.jetbrains.kotlin.android\" version \")[^\"]+/\1${KOTLIN_VERSION}/" "$S"
+  echo "--- $S"; cat "$S"
+done
+
 echo "--- AndroidManifest.xml"; cat "$M"
 echo "--- minSdk"; grep -h -n "minSdk" android/app/build.gradle* || true
