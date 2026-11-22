@@ -163,26 +163,40 @@ def _is_label(v: str | None) -> bool:
     return bool(v) and not re.fullmatch(r"Q\d+", v) and not v.startswith("http")
 
 
-def resolve_qid(search: str, lang: str = "de", retries: int = 6) -> str:
-    """Identifiant Wikidata d'une institution d'après son nom (premier résultat de la recherche).
-    Réessaie avec pause : l'API limite le débit des robots (429) quand plusieurs constructions tournent."""
+LABEL_QUERY = """
+SELECT DISTINCT ?m WHERE {{
+  VALUES ?label {{ "{name}"@{lang} "{name}"@en "{name}"@de "{name}"@fr }}
+  ?m rdfs:label|skos:altLabel ?label .
+  ?m wdt:P31/wdt:P279* wd:Q33506 .
+}} LIMIT 3
+"""
+
+
+def resolve_qid(search: str, lang: str = "de", retries: int = 4) -> str:
+    """Identifiant Wikidata d'un musée d'après son nom : API de recherche, puis requête SPARQL sur les libellés
+    (l'API de recherche limite fortement les robots quand plusieurs constructions tournent)."""
     import requests
     for attempt in range(retries):
-        r = requests.get("https://www.wikidata.org/w/api.php",
-                         params={"action": "wbsearchentities", "search": search, "language": lang, "type": "item",
-                                 "limit": 1, "format": "json", "maxlag": 5}, headers={"User-Agent": UA}, timeout=30)
-        if r.status_code == 429 or (r.ok and "error" in r.json()):
-            wait = min(120, float(r.headers.get("Retry-After") or 0) or 10 * 2 ** attempt)
-            print(f"  Wikidata : recherche limitée, nouvel essai dans {wait:.0f} s", flush=True)
-            time.sleep(wait)
-            continue
-        r.raise_for_status()
-        hits = r.json().get("search") or []
-        if not hits:
-            raise ValueError(f"aucun élément Wikidata pour « {search} »")
-        print(f"  Wikidata : « {search} » -> {hits[0]['id']} ({hits[0].get('label')}, {hits[0].get('description')})")
-        return hits[0]["id"]
-    raise RuntimeError(f"recherche Wikidata impossible pour « {search} »")
+        try:
+            r = requests.get("https://www.wikidata.org/w/api.php",
+                             params={"action": "wbsearchentities", "search": search, "language": lang, "type": "item",
+                                     "limit": 1, "format": "json"}, headers={"User-Agent": UA}, timeout=30)
+            if r.status_code == 200 and "error" not in r.json():
+                hits = r.json().get("search") or []
+                if hits:
+                    print(f"  Wikidata : « {search} » -> {hits[0]['id']} ({hits[0].get('label')}, "
+                          f"{hits[0].get('description')})")
+                    return hits[0]["id"]
+                break
+        except (requests.RequestException, ValueError):
+            pass
+        time.sleep(min(60, 5 * 2 ** attempt))
+    name = search.replace('"', '\\"')
+    hits = [_qid(_v(b, "m")) for b in _sparql(LABEL_QUERY.format(name=name, lang=lang))]
+    if not hits:
+        raise ValueError(f"aucun musée Wikidata nommé « {search} »")
+    print(f"  Wikidata (SPARQL) : « {search} » -> {hits[0]}" + (f" (autres : {hits[1:]})" if len(hits) > 1 else ""))
+    return hits[0]
 
 
 def museum(qid: str, museum_id: str, lang: str = "fr", city: str | None = None,

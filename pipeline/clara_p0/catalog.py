@@ -18,6 +18,59 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+PACK_FORMAT = 3  # à incrémenter si le format des packs change sans que le code ci-dessous change
+# Fichiers dont dépend le contenu d'un pack (l'évaluation, la reconnaissance PC… n'en font pas partie)
+RECIPE_FILES = ["pack.py", "records.py", "embed.py", "index.py", "views.py", "imageio.py", "verify.py",
+                "catalog.py", "__main__.py", "sources/*.py"]
+ROOT = Path(__file__).resolve().parent
+
+
+def code_hash() -> str:
+    h = hashlib.sha256()
+    files = sorted({p for pat in RECIPE_FILES for p in ROOT.glob(pat)})
+    files.append(ROOT.parents[1] / "data" / "schema.sql")
+    for f in files:
+        h.update(f.relative_to(ROOT.parents[1]).as_posix().encode())
+        h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()
+
+
+def recipe(entry: dict, model: str, code: str | None = None) -> str:
+    """Empreinte de fabrication d'un pack : même empreinte = même pack, inutile de le reconstruire."""
+    e = {k: v for k, v in entry.items() if not k.startswith("_")}
+    payload = json.dumps({"entry": e, "model": model, "format": PACK_FORMAT, "code": code or code_hash()},
+                         sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def plan(registry: str, model: str, previous: str | None = None, force: str = "",
+         max_age_days: float = 60) -> dict:
+    """Musées à construire et musées à reprendre tels quels de la release précédente.
+
+    Repris : même empreinte de fabrication et pack de moins de max_age_days jours (les données des musées
+    évoluent : un rafraîchissement régulier reste utile). force : « all » ou « id1,id2 »."""
+    entries = load_registry(registry)
+    code = code_hash()
+    prev = {}
+    if previous and Path(previous).exists():
+        prev = {p["id"]: p for p in json.loads(Path(previous).read_text(encoding="utf-8")).get("packs", [])}
+    forced = {e["id"] for e in entries} if force.strip() == "all" else {f.strip() for f in force.split(",") if f.strip()}
+    now = datetime.now(timezone.utc)
+    build, reuse = [], []
+    for e in entries:
+        r = recipe(e, model, code)
+        p = prev.get(e["id"])
+        fresh = False
+        if p and p.get("built_at"):
+            age = now - datetime.strptime(p["built_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            fresh = age.days < max_age_days
+        if e["id"] not in forced and p and p.get("recipe") == r and fresh:
+            reuse.append({"id": e["id"], "file": p["file"]})
+        else:
+            build.append(e["id"])
+    return {"build": build, "reuse": reuse, "code": code}
+
+
 def load_registry(path: str | Path) -> list[dict]:
     reg = json.loads(Path(path).read_text(encoding="utf-8"))
     return reg["museums"] if isinstance(reg, dict) else reg
@@ -39,7 +92,7 @@ def _fresh(path: Path) -> bool:
     return path.exists() and (time.time() - path.stat().st_mtime) < MAX_RAW_AGE_DAYS * 86400
 
 
-def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
+def build_one(entry: dict, emb, out: str, cache: str, version: int = 1, model: str = "dinov2-small") -> Path:
     from . import pack
     from .__main__ import build_wikidata_pack
 
@@ -79,14 +132,15 @@ def build_one(entry: dict, emb, out: str, cache: str, version: int = 1) -> Path:
             except Exception as e:
                 print(f"Croisement Wikidata impossible ({e.__class__.__name__}: {e}) : pack sans enrichissement")
         d = pack.build(smk.MUSEUM, [smk.SOURCE, wikidata.SOURCE], arts, emb, out, cache, version=version,
-                       keypoints=False)
+                       keypoints=False, recipe=recipe(entry, model))
     elif entry["source"] == "wikidata":
         d = build_wikidata_pack(qid, entry["id"], emb, out, cache, version=version,
                                 lang=entry.get("lang", "fr"), city=entry.get("city"),
                                 country_name=entry.get("country_name"), max_images=entry.get("max_images", 4000),
                                 keypoints=False, country=entry.get("country"), match=entry.get("match", "collection"),
                                 types=tuple(entry.get("types", ["painting"])),
-                                offline_raw=_fresh(Path(cache) / f"wikidata_{entry['id']}" / "raw.json"))
+                                offline_raw=_fresh(Path(cache) / f"wikidata_{entry['id']}" / "raw.json"),
+                                recipe=recipe(entry, model))
     else:
         raise ValueError(f"source inconnue : {entry['source']}")
     m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
@@ -141,6 +195,7 @@ def merge(packs_dir: str, registry: str | None = None) -> Path:
             "lat": mu.get("lat"), "lon": mu.get("lon"), "version": m["version"],
             "works": m["counts"]["artworks"], "recognizable": m["counts"]["recognizable"],
             "data_quality": m.get("data_quality", 0), "model_id": m["model_id"],
+            "recipe": m.get("recipe"), "built_at": m.get("built_at"),
             "file": z.name, "bytes": z.stat().st_size, "sha256": _sha256(z), "_zip": str(z),
         }
     models = {p["model_id"] for p in best.values()}

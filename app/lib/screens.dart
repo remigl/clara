@@ -662,9 +662,21 @@ class _MuseumsScreenState extends State<MuseumsScreen> {
     }
     if (p != null) {
       final isCurrent = s.currentId == p.id;
+      final update = r != null && s.hasUpdate(r);
       return ListTile(
         title: Text(p.name),
-        subtitle: Padding(padding: const EdgeInsets.only(top: 6), child: ProgressBlock(state: s, pack: p)),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            ProgressBlock(state: s, pack: p),
+            if (update)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('Mise à jour disponible (${formatBytes(r.bytes)})',
+                    style: TextStyle(color: theme.colorScheme.primary)),
+              ),
+          ]),
+        ),
         trailing: PopupMenuButton<String>(
           onSelected: (v) async {
             if (v == 'scan') s.setCurrent(p.id);

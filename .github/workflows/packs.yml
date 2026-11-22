@@ -15,6 +15,10 @@ on:
         description: "Tag d'une release existante où publier les packs (ex. v0.2.0), vide = simple construction"
         required: false
         default: ''
+      rebuild:
+        description: "Reconstruire quand même : all, ou id1,id2 (vide = seulement les musées nouveaux ou modifiés)"
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -27,25 +31,42 @@ jobs:
   list:
     runs-on: ubuntu-latest
     outputs:
-      ids: ${{ steps.ids.outputs.ids }}
+      ids: ${{ steps.plan.outputs.ids }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+      prev_tag: ${{ steps.plan.outputs.prev_tag }}
     steps:
       - uses: actions/checkout@v5
-      - id: ids
+      - id: plan
         env:
+          GH_TOKEN: ${{ github.token }}
           MSG: ${{ github.event.head_commit.message }}
           EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          REBUILD: ${{ inputs.rebuild }}
         run: |
-          # push sur main : seulement si le message contient [packs] (tous) ou [packs:id1,id2] (quelques-uns)
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ]; then
+            # push sur main : packs d'essai seulement si le message contient [packs] ou [packs:id1,id2]
+            python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os, re
           ids = [m["id"] for m in json.load(open("pipeline/museums.json"))["museums"]]
-          if os.environ["EVENT"] == "push":
-              tags = re.findall(r"\[packs(?::([^\]]+))?\]", os.environ.get("MSG", ""))
-              if "" not in tags:  # [packs] seul = tous ; sinon union des [packs:a,b]
-                  wanted = {i.strip() for t in tags for i in t.split(",")}
-                  ids = [i for i in ids if i in wanted]
+          tags = re.findall(r"\[packs(?::([^\]]+))?\]", os.environ.get("MSG", ""))
+          if "" not in tags:  # [packs] seul = tous ; sinon union des [packs:a,b]
+              wanted = {i.strip() for t in tags for i in t.split(",")}
+              ids = [i for i in ids if i in wanted]
           print("ids=" + json.dumps(ids))
+          print("reuse=[]")
+          print("prev_tag=")
           PY
+          else
+            # release : ne reconstruire que les musées nouveaux ou modifiés, reprendre les autres
+            PREV=$(bash .github/scripts/prev_catalog.sh "$TAG" prev)
+            echo "Release précédente avec catalogue : ${PREV:-aucune}"
+            cd pipeline
+            PLAN=$(python3 -m clara_p0 plan --registry museums.json --previous ../prev/catalog.json --force "$REBUILD")
+            echo "ids=$(echo "$PLAN" | python3 -c 'import json,sys;print(json.dumps(json.load(sys.stdin)["build"]))')" >> "$GITHUB_OUTPUT"
+            echo "reuse=$(echo "$PLAN" | python3 -c 'import json,sys;print(json.dumps(json.load(sys.stdin)["reuse"]))')" >> "$GITHUB_OUTPUT"
+            echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
+          fi
 
   pack:
     needs: list
@@ -88,14 +109,30 @@ jobs:
 
   catalog:
     needs: [list, pack]
-    if: always() && needs.list.outputs.ids != '[]'
+    if: always() && (needs.list.outputs.ids != '[]' || needs.list.outputs.reuse != '[]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: pack-*
           path: pipeline/packs
+      - name: Packs repris de la release précédente (inchangés)
+        if: needs.list.outputs.reuse != '[]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE: ${{ needs.list.outputs.reuse }}
+          PREV: ${{ needs.list.outputs.prev_tag }}
+        run: |
+          echo "$REUSE" | python3 -c "import json,sys;[print(r['id'],r['file']) for r in json.load(sys.stdin)]" |
+          while read -r id file; do
+            d="pipeline/packs/reuse-$id"; stem="${file%.zip}"
+            mkdir -p "$d/$stem"
+            gh release download "$PREV" -R "$GITHUB_REPOSITORY" -p "$file" -D "$d" --clobber
+            unzip -o -q "$d/$file" manifest.json -d "$d/$stem"
+            echo "repris : $id ($file, $PREV)"
+          done
       - name: catalog.json
         working-directory: pipeline
         run: |

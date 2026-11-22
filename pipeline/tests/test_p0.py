@@ -357,3 +357,25 @@ def test_wikidata_format2_enrichment_and_pack(tmp_path):
         [["Provenance", [["1642–1715", "X"]]]]
     assert knowledge._trim("a" * 50 + "\n" + "b" * 50 + "\n" + "c" * 50, 120) == "a" * 50 + "\n\n" + "b" * 50
     assert "VALUES ?type { wd:Q3305213 wd:Q93184 }" in wikidata.scope("Q1", "both", ("painting", "drawing"))
+
+
+def test_incremental_plan(tmp_path):
+    from clara_p0 import catalog
+    reg = tmp_path / "museums.json"
+    reg.write_text(json.dumps({"museums": [{"id": "a", "source": "wikidata", "qid": "Q1"},
+                                           {"id": "b", "source": "wikidata", "qid": "Q2"},
+                                           {"id": "c", "source": "wikidata", "qid": "Q3"}]}))
+    entries = catalog.load_registry(reg)
+    now = datetime_now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    fresh = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    old = (now - __import__("datetime").timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    prev = tmp_path / "prev.json"
+    prev.write_text(json.dumps({"packs": [
+        {"id": "a", "file": "a-v1.zip", "recipe": catalog.recipe(entries[0], "m"), "built_at": fresh},   # identique
+        {"id": "b", "file": "b-v1.zip", "recipe": "autre", "built_at": fresh},                            # modifié
+        {"id": "c", "file": "c-v1.zip", "recipe": catalog.recipe(entries[2], "m"), "built_at": old}]}))   # trop vieux
+    p = catalog.plan(str(reg), "m", str(prev))
+    assert p["build"] == ["b", "c"] and p["reuse"] == [{"id": "a", "file": "a-v1.zip"}]
+    assert catalog.plan(str(reg), "m", str(prev), force="a")["build"] == ["a", "b", "c"]
+    assert catalog.plan(str(reg), "m", None)["build"] == ["a", "b", "c"]
+    assert catalog.recipe(entries[0], "m") != catalog.recipe(entries[0], "autre-modèle")

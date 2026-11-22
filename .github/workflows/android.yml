@@ -41,12 +41,25 @@ jobs:
 
       - name: Modèle DINOv2 et pack SMK (embarqué dans l'app)
         working-directory: pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           set -o pipefail
           pip install -q -r requirements.txt
           python -m clara_p0 download-model --variant dinov2-small 2>&1 | tee -a ../ci.log
-          python -m clara_p0 build-catalog --only dk-smk --model models/dinov2-small.onnx \
-            --projection none --pooling cls 2>&1 | tee -a ../ci.log
+          # pack SMK inchangé depuis la dernière release : repris tel quel (pas de reconstruction)
+          PREV=$(bash ../.github/scripts/prev_catalog.sh "$TAG" ../prev)
+          REUSE=$(python -m clara_p0 plan --registry museums.json --previous ../prev/catalog.json |
+                  python -c 'import json,sys;print(" ".join(r["file"] for r in json.load(sys.stdin)["reuse"] if r["id"]=="dk-smk"))')
+          mkdir -p packs
+          if [ -n "$PREV" ] && [ -n "$REUSE" ] && gh release download "$PREV" -R "$GITHUB_REPOSITORY" -p "$REUSE" -D packs --clobber; then
+            mv "packs/$REUSE" packs/dk-smk-v1.zip 2>/dev/null || true
+            echo "Pack SMK repris de $PREV" | tee -a ../ci.log
+          else
+            python -m clara_p0 build-catalog --only dk-smk --model models/dinov2-small.onnx \
+              --projection none --pooling cls 2>&1 | tee -a ../ci.log
+          fi
 
       - name: Assets de l'app
         run: |

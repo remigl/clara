@@ -162,7 +162,7 @@ def cmd_build_smk(a):
 
 def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", city=None, country_name=None,
                         offline_raw=False, wikipedia=True, max_images=None, keypoints=True, country=None,
-                        match="collection", types=("painting",)):
+                        match="collection", types=("painting",), recipe=None):
     from . import pack
     from .sources import knowledge, wikidata
     raw_dir = Path(cache) / f"wikidata_{museum_id}"
@@ -179,13 +179,22 @@ def build_wikidata_pack(qid, museum_id, emb, out, cache, version=1, lang="fr", c
     _notice(f"{museum_id} : {len(arts)} œuvres ; texte Wikipédia {n_desc}, biographie de l'artiste {n_bio}, "
             f"iconographie/création/provenance {n_sec}, notions expliquées {n_glo}")
     return pack.build(museum, [wikidata.SOURCE], arts, emb, out, cache, version=version, max_images=max_images,
-                      keypoints=keypoints)
+                      keypoints=keypoints, recipe=recipe)
 
 
 def cmd_build_wikidata(a):
     build_wikidata_pack(a.qid, a.id, _embedder(a), a.out, a.cache, version=a.version, lang=a.lang, city=a.city,
                         country_name=a.country_name, offline_raw=a.offline_raw, wikipedia=not a.no_wikipedia,
                         max_images=a.max_images)
+
+
+def cmd_plan(a):
+    import json as _json
+    from . import catalog
+    p = catalog.plan(a.registry, a.model_variant, a.previous, a.force or "", a.max_age_days)
+    print(f"À construire ({len(p['build'])}) : {', '.join(p['build']) or '—'}", file=sys.stderr)
+    print(f"Repris ({len(p['reuse'])}) : {', '.join(r['id'] for r in p['reuse']) or '—'}", file=sys.stderr)
+    print(_json.dumps(p))
 
 
 def cmd_build_catalog(a):
@@ -283,6 +292,11 @@ def main(argv=None):
     p.add_argument("--cache", default="cache"); p.add_argument("--version", type=int, default=1)
     p.add_argument("--only", help="un seul musée (id), pour la construction en parallèle")
     p.set_defaults(f=cmd_build_catalog)
+
+    p = sub.add_parser("plan", help="musées à reconstruire / à reprendre de la release précédente (JSON)")
+    p.add_argument("--registry", default="museums.json"); p.add_argument("--previous", help="catalog.json précédent")
+    p.add_argument("--model-variant", default="dinov2-small"); p.add_argument("--force", default="")
+    p.add_argument("--max-age-days", type=float, default=60); p.set_defaults(f=cmd_plan)
 
     p = sub.add_parser("merge-catalog", help="assemble catalog.json à partir des packs construits séparément")
     p.add_argument("--packs", default="packs"); p.add_argument("--registry", default="museums.json")

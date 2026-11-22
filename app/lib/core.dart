@@ -224,6 +224,7 @@ class MuseumPack {
   String get id => manifest['id'] as String;
   String get modelId => manifest['model_id'] as String;
   int get version => manifest['version'] as int;
+  String? get builtAt => manifest['built_at'] as String?;
   Map<String, dynamic> get _m => (manifest['museum'] as Map?)?.cast<String, dynamic>() ?? const {};
   String get name => (museum['name_local'] as String?) ?? (museum['name'] as String? ?? id);
   String get city => (_m['city'] as String?) ?? (museum['city'] as String?) ?? '';
@@ -369,6 +370,7 @@ class RemotePack {
   String get modelId => (json['model_id'] as String?) ?? '';
   int get dataQuality => (json['data_quality'] as num?)?.toInt() ?? 0;
   String get url => '${(json['base_url'] as String?) ?? packBaseUrl}$file';
+  String? get builtAt => json['built_at'] as String?;
 }
 
 String formatBytes(int b) {
@@ -879,9 +881,14 @@ class AppState extends ChangeNotifier {
 
   bool isCompatible(RemotePack r) => modelId == null || r.modelId.isEmpty || r.modelId == modelId;
 
+  /// Mise à jour proposée seulement si le pack a vraiment été reconstruit (les packs inchangés sont repris
+  /// d'une release à l'autre avec la même date de construction) : pas de nouveau téléchargement inutile.
   bool hasUpdate(RemotePack r) {
     final p = packs[r.id];
-    return p != null && isCompatible(r) && r.version > p.version;
+    if (p == null || !isCompatible(r)) return false;
+    if (r.version > p.version) return true;
+    final a = r.builtAt, b = p.builtAt;
+    return a != null && b != null && a.compareTo(b) > 0;
   }
 
   Future<void> download(RemotePack r) async {

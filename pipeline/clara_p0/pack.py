@@ -109,7 +109,8 @@ def download_images(artworks: list[Artwork], cache_dir: Path, workers: int = 4) 
 def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedder: Embedder,
           out_dir: str | Path, cache_dir: str | Path = "cache", version: int = 1,
           views=DEFAULT_REFERENCE_VIEWS, thumbs: bool = True, embed_restricted: bool = False,
-          zip_pack: bool = True, max_images: int | None = None, keypoints: bool = True) -> Path:
+          zip_pack: bool = True, max_images: int | None = None, keypoints: bool = True,
+          recipe: str | None = None) -> Path:
     """Construit un pack. Par défaut (politique v1, ARCHITECTURE.md §3.2), seules les images « open »
     sont encodées et affichées ; les autres œuvres restent dans le catalogue, sans image."""
     t0 = time.perf_counter()
@@ -247,7 +248,7 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
 
     files = sorted(p for p in pack_dir.rglob("*") if p.is_file())
     manifest = {
-        "id": museum.id, "version": version, "built_at": now, "model_id": embedder.model_id,
+        "id": museum.id, "version": version, "built_at": now, "model_id": embedder.model_id, "recipe": recipe,
         "embedding_dim": embedder.dim, "embedding_dtype": "int8", "reference_views": list(views),
         "data_quality": museum.data_quality,
         "museum": {"id": museum.id, "name": museum.name, "name_local": museum.name_local, "city": museum.city,

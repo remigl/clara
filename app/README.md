@@ -30,6 +30,11 @@ Le pack et l'app doivent utiliser **le même modèle** et le même réglage (CLS
 
 Chaque fiche croise Wikidata (artiste, iconographie, création, provenance, expositions), Wikipédia
 (textes de l'œuvre, de l'artiste, des mouvements et genres), Iconclass et, pour le SMK, l'API du musée.
+À chaque release, seuls les musées nouveaux ou modifiés sont reconstruits (empreinte de fabrication :
+musée, modèle, code du pipeline ; rafraîchissement au-delà de 60 jours) ; les autres sont repris de la
+release précédente, et l'app ne propose « Mettre à jour » que pour les packs réellement reconstruits.
+Lancement manuel : `rebuild` = `all` ou `id1,id2` pour forcer.
+
 Un push sur `main` dont le message contient `[packs]` (ou `[packs:id1,id2]`) construit des packs d'essai.
 
 
