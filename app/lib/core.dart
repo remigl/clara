@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 const int inputSize = 224;
+const String releasesApi = 'https://api.github.com/repos/remigl/clara/releases?per_page=10';
 const String catalogUrl = 'https://github.com/remigl/clara/releases/latest/download/catalog.json';
 const String packBaseUrl = 'https://github.com/remigl/clara/releases/latest/download/';
 const String embeddedPackAsset = 'assets/packs/dk-smk.zip';
@@ -367,6 +368,7 @@ class RemotePack {
   String get sha256 => (json['sha256'] as String?) ?? '';
   String get modelId => (json['model_id'] as String?) ?? '';
   int get dataQuality => (json['data_quality'] as num?)?.toInt() ?? 0;
+  String get url => '${(json['base_url'] as String?) ?? packBaseUrl}$file';
 }
 
 String formatBytes(int b) {
@@ -466,19 +468,51 @@ class PackStore {
   List<RemotePack> _parseCatalog(String body) {
     final j = jsonDecode(body) as Map<String, dynamic>;
     final model = j['model_id'] as String?;
+    final base = j['base_url'] as String?;
     return [
       for (final p in (j['packs'] as List? ?? const []))
-        RemotePack({'model_id': model, ...(p as Map).cast<String, dynamic>()})
+        RemotePack({'model_id': model, 'base_url': base, ...(p as Map).cast<String, dynamic>()})
     ];
   }
 
+  Future<String> _get(HttpClient client, String url, {bool json = false}) async {
+    final req = await client.getUrl(Uri.parse(url));
+    req.headers.set(HttpHeaders.userAgentHeader, 'Clara-app');
+    if (json) req.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+    final res = await req.close();
+    if (res.statusCode != 200) {
+      await res.drain<void>();
+      throw HttpException('HTTP ${res.statusCode}', uri: Uri.parse(url));
+    }
+    return res.transform(utf8.decoder).join();
+  }
+
+  /// Catalogue de la release la plus récente qui en contient un : pendant la construction des packs
+  /// d'une nouvelle version (plusieurs heures), l'app continue d'utiliser ceux de la version précédente.
   Future<List<RemotePack>> fetchCatalog() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      final req = await client.getUrl(Uri.parse(catalogUrl));
-      final res = await req.close();
-      if (res.statusCode != 200) throw HttpException('catalogue indisponible (HTTP ${res.statusCode})');
-      final body = await res.transform(utf8.decoder).join();
+      String body;
+      try {
+        final releases = jsonDecode(await _get(client, releasesApi, json: true)) as List;
+        String? found;
+        for (final r in releases.cast<Map<String, dynamic>>()) {
+          if (r['draft'] == true || r['prerelease'] == true) continue;
+          final assets = (r['assets'] as List? ?? const []).cast<Map<String, dynamic>>();
+          final cat = assets.where((a) => a['name'] == 'catalog.json').firstOrNull;
+          if (cat == null) continue;
+          final j = jsonDecode(await _get(client, cat['browser_download_url'] as String)) as Map<String, dynamic>;
+          j['base_url'] = 'https://github.com/remigl/clara/releases/download/${r['tag_name']}/';
+          j['release'] = r['tag_name'];
+          found = jsonEncode(j);
+          break;
+        }
+        if (found == null) throw const HttpException('aucune release ne contient encore de catalogue');
+        body = found;
+      } on HttpException catch (e) {
+        if (e.message.contains('aucune release')) rethrow;
+        body = await _get(client, catalogUrl); // API GitHub limitée (60 requêtes/heure) : dernière release
+      }
       final packs = _parseCatalog(body);
       await catalogCache.writeAsString(body);
       return packs;
@@ -492,7 +526,7 @@ class PackStore {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     final tmp = File('${root.path}/.download-${p.id}.zip');
     try {
-      final req = await client.getUrl(Uri.parse('$packBaseUrl${p.file}'));
+      final req = await client.getUrl(Uri.parse(p.url));
       final res = await req.close();
       if (res.statusCode != 200) throw HttpException('téléchargement impossible (HTTP ${res.statusCode})');
       final total = res.contentLength > 0 ? res.contentLength : p.bytes;
@@ -832,7 +866,11 @@ class AppState extends ChangeNotifier {
       catalog = await packStore.fetchCatalog();
       catalogError = null;
     } catch (e) {
-      catalogError = 'Catalogue en ligne indisponible ($e)';
+      catalogError = e is SocketException
+          ? 'pas de connexion Internet'
+          : e is HttpException
+              ? e.message
+              : '$e';
     } finally {
       catalogLoading = false;
       notifyListeners();

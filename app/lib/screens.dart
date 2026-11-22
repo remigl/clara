@@ -602,11 +602,15 @@ class _MuseumsScreenState extends State<MuseumsScreen> {
                 ),
               ),
               if (s.catalogLoading) const LinearProgressIndicator(),
-              if (s.catalogError != null && s.catalog == null)
+              if (s.catalogError != null)
                 Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Text('Pas de connexion : seuls les musées déjà téléchargés sont affichés. '
-                      'Tire vers le bas pour réessayer.', style: theme.textTheme.bodySmall),
+                  child: Text(
+                      s.catalog == null
+                          ? 'Liste des musées indisponible (${s.catalogError}) : seuls les musées déjà téléchargés '
+                              'sont affichés. Tire vers le bas pour réessayer.'
+                          : 'Liste des musées non actualisée (${s.catalogError}) : dernière liste connue affichée.',
+                      style: theme.textTheme.bodySmall),
                 ),
               for (final (country, _, cities) in groups)
                 ExpansionTile(
