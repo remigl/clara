@@ -1,0 +1,41 @@
+name: Release automatique
+
+# Dès que la version de l'app change (app/pubspec.yaml) sur main, crée la release v<version>
+# avec app/RELEASE_NOTES.md, puis lance la construction de l'APK et des packs musées pour cette release.
+# (Une release créée par le jeton GITHUB_TOKEN ne déclenche pas l'événement « release » :
+#  on lance donc explicitement les deux workflows, ce que GitHub autorise via workflow_dispatch.)
+on:
+  push:
+    branches: [main]
+    paths: ['app/pubspec.yaml', '.github/workflows/release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-auto
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Créer la release et lancer les constructions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep -E '^version:' app/pubspec.yaml | sed -E 's/version:[[:space:]]*([^+[:space:]]+).*/\1/')
+          TAG="v$VERSION"
+          echo "Version de l'app : $VERSION"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::La release $TAG existe déjà : rien à faire."
+            exit 0
+          fi
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Clara $TAG" --notes-file app/RELEASE_NOTES.md --latest
+          echo "::notice::Release $TAG créée ; APK et packs en construction."
+          gh workflow run android.yml -R "$GITHUB_REPOSITORY" --ref main -f release_tag="$TAG"
+          gh workflow run packs.yml -R "$GITHUB_REPOSITORY" --ref main -f release_tag="$TAG"
