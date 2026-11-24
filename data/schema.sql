@@ -64,7 +64,11 @@ CREATE TABLE artist (
   teachers         TEXT,                 -- maîtres (P1066)
   students         TEXT,                 -- élèves (P802)
   bio              TEXT,                 -- introduction Wikipédia
-  bio_credit       TEXT
+  bio_credit       TEXT,
+  notable_works    TEXT,                 -- principales œuvres (P800)
+  style            TEXT,                 -- section « style / œuvre » de l'article
+  anecdotes        TEXT,                 -- vie, postérité, anecdotes
+  extra_credit     TEXT
 );
 
 CREATE TABLE glossary (                  -- « pour comprendre » : mouvements, genres expliqués

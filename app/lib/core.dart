@@ -30,8 +30,28 @@ const Map<String, String> countryNames = {
   'AT': 'Autriche', 'BE': 'Belgique', 'CH': 'Suisse', 'CZ': 'Tchéquie', 'DE': 'Allemagne', 'DK': 'Danemark',
   'ES': 'Espagne', 'FI': 'Finlande', 'FR': 'France', 'GB': 'Royaume-Uni', 'GR': 'Grèce', 'HU': 'Hongrie',
   'IE': 'Irlande', 'IT': 'Italie', 'LU': 'Luxembourg', 'NL': 'Pays-Bas', 'NO': 'Norvège', 'PL': 'Pologne',
-  'PT': 'Portugal', 'RO': 'Roumanie', 'SE': 'Suède', 'UK': 'Royaume-Uni',
+  'PT': 'Portugal', 'RO': 'Roumanie', 'SE': 'Suède', 'UK': 'Royaume-Uni', 'RU': 'Russie', 'IS': 'Islande',
+  'EE': 'Estonie', 'LV': 'Lettonie', 'LT': 'Lituanie', 'SK': 'Slovaquie', 'SI': 'Slovénie', 'HR': 'Croatie',
+  'RS': 'Serbie', 'BG': 'Bulgarie', 'UA': 'Ukraine', 'TR': 'Turquie', 'MT': 'Malte', 'MC': 'Monaco',
+  'US': 'États-Unis', 'CA': 'Canada', 'MX': 'Mexique', 'BR': 'Brésil', 'AR': 'Argentine', 'CL': 'Chili',
+  'CO': 'Colombie', 'PE': 'Pérou', 'CU': 'Cuba', 'JP': 'Japon', 'CN': 'Chine', 'TW': 'Taïwan',
+  'KR': 'Corée du Sud', 'IN': 'Inde', 'SG': 'Singapour', 'HK': 'Hong Kong', 'TH': 'Thaïlande', 'IL': 'Israël',
+  'AE': 'Émirats arabes unis', 'QA': 'Qatar', 'EG': 'Égypte', 'ZA': 'Afrique du Sud', 'MA': 'Maroc',
+  'AU': 'Australie', 'NZ': 'Nouvelle-Zélande',
 };
+
+const Map<String, String> _continentOf = {
+  'US': 'Amériques', 'CA': 'Amériques', 'MX': 'Amériques', 'BR': 'Amériques', 'AR': 'Amériques',
+  'CL': 'Amériques', 'CO': 'Amériques', 'PE': 'Amériques', 'CU': 'Amériques',
+  'JP': 'Asie', 'CN': 'Asie', 'TW': 'Asie', 'KR': 'Asie', 'IN': 'Asie', 'SG': 'Asie', 'HK': 'Asie', 'TH': 'Asie',
+  'IL': 'Asie', 'AE': 'Asie', 'QA': 'Asie',
+  'EG': 'Afrique', 'ZA': 'Afrique', 'MA': 'Afrique',
+  'AU': 'Océanie', 'NZ': 'Océanie',
+};
+
+/// Continent d'un pays (Europe par défaut) ; ordre d'affichage : [continents].
+String continentOf(String iso) => _continentOf[iso.toUpperCase()] ?? 'Europe';
+const List<String> continents = ['Europe', 'Amériques', 'Asie', 'Océanie', 'Afrique'];
 
 String countryFlag(String iso) {
   final code = iso.toUpperCase() == 'UK' ? 'GB' : iso.toUpperCase();
@@ -171,11 +191,18 @@ class ArtistInfo {
         teachers = r['teachers'] as String?,
         students = r['students'] as String?,
         bio = r['bio'] as String?,
-        bioCredit = r['bio_credit'] as String?;
+        bioCredit = r['bio_credit'] as String?,
+        notableWorks = _col(r, 'notable_works'),
+        style = _col(r, 'style'),
+        anecdotes = _col(r, 'anecdotes'),
+        extraCredit = _col(r, 'extra_credit');
 
   final String name;
   final int? birthYear, deathYear;
   final String? nationality, birthPlace, deathPlace, occupations, movements, teachers, students, bio, bioCredit;
+  final String? notableWorks, style, anecdotes, extraCredit; // packs format 3+ (null sinon)
+
+  static String? _col(Row r, String c) => r.keys.contains(c) ? r[c] as String? : null;
 
   String? get lifeLine {
     String part(int? y, String? place, String verb) =>
@@ -187,7 +214,8 @@ class ArtistInfo {
   }
 
   bool get hasDetails =>
-      [bio, birthPlace, deathPlace, movements, teachers, students, occupations].any((x) => x != null && x.isNotEmpty);
+      [bio, birthPlace, deathPlace, movements, teachers, students, occupations, notableWorks, style, anecdotes]
+          .any((x) => x != null && x.isNotEmpty);
 }
 
 class GlossaryEntry {
@@ -312,6 +340,18 @@ class MuseumPack {
           [artistId, excludeId, limit]))
         Artwork.fromRow(r, this)
     ];
+  }
+
+  /// Œuvres tirées au hasard (avec image), hors [exclude].
+  List<Artwork> randomArtworks(int n, Set<String> exclude) {
+    final out = <Artwork>[];
+    for (final r in db.select('$_artworkSelect WHERE i.local_path IS NOT NULL ORDER BY RANDOM() LIMIT ?', [n * 3])) {
+      final id = r['id'] as String;
+      if (exclude.contains(id)) continue;
+      out.add(Artwork.fromRow(r, this));
+      if (out.length >= n) break;
+    }
+    return out;
   }
 
   List<Artwork> searchText(String text) {
@@ -670,6 +710,16 @@ class UserStore {
       id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, museum_id TEXT, artwork_id TEXT,
       score REAL, decision TEXT NOT NULL, candidates_json TEXT)''');
     db.execute('''CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT)''');
+    // Photos prises au scan, liées à l'œuvre reconnue (fichiers dans <support>/photos).
+    db.execute('''CREATE TABLE IF NOT EXISTS photo (
+      id INTEGER PRIMARY KEY, artwork_id TEXT NOT NULL, museum_id TEXT NOT NULL, path TEXT NOT NULL,
+      created_at TEXT NOT NULL)''');
+    db.execute('CREATE INDEX IF NOT EXISTS photo_artwork ON photo(artwork_id)');
+    // Notes personnelles. Préparation communautaire (non implémentée) : identifiant stable (uuid),
+    // visibilité (private | public), date de modification pour une future synchronisation.
+    db.execute('''CREATE TABLE IF NOT EXISTS user_note (
+      artwork_id TEXT PRIMARY KEY, uuid TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'private')''');
     return UserStore._(db);
   }
 
@@ -715,6 +765,43 @@ class UserStore {
     }
   }
 
+  List<String> favorites() =>
+      [for (final r in db.select('SELECT artwork_id FROM favorite ORDER BY created_at DESC')) r['artwork_id'] as String];
+
+  // --- photos personnelles
+  void addPhoto(String artworkId, String museumId, String path) =>
+      db.execute('INSERT INTO photo (artwork_id, museum_id, path, created_at) VALUES (?,?,?,?)',
+          [artworkId, museumId, path, _now()]);
+
+  List<(int, String)> photos(String artworkId) => [
+        for (final r in db.select('SELECT id, path FROM photo WHERE artwork_id = ? ORDER BY created_at DESC', [artworkId]))
+          (r['id'] as int, r['path'] as String)
+      ];
+
+  String? deletePhoto(int id) {
+    final r = db.select('SELECT path FROM photo WHERE id = ?', [id]);
+    db.execute('DELETE FROM photo WHERE id = ?', [id]);
+    return r.isEmpty ? null : r.first['path'] as String;
+  }
+
+  // --- notes personnelles
+  String? note(String artworkId) {
+    final r = db.select('SELECT body FROM user_note WHERE artwork_id = ?', [artworkId]);
+    return r.isEmpty ? null : r.first['body'] as String;
+  }
+
+  void setNote(String artworkId, String body) {
+    if (body.trim().isEmpty) {
+      db.execute('DELETE FROM user_note WHERE artwork_id = ?', [artworkId]);
+      return;
+    }
+    final uuid = '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${math.Random().nextInt(1 << 32).toRadixString(36)}';
+    db.execute(
+        'INSERT INTO user_note (artwork_id, uuid, body, created_at, updated_at) VALUES (?,?,?,?,?) '
+        'ON CONFLICT(artwork_id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at',
+        [artworkId, uuid, body, _now(), _now()]);
+  }
+
   void logScan(String? museumId, List<Candidate> c, String decision, {String? chosen}) {
     db.execute(
         'INSERT INTO scan (created_at, museum_id, artwork_id, score, decision, candidates_json) VALUES (?,?,?,?,?,?)', [
@@ -733,11 +820,12 @@ class UserStore {
 const String everywhere = '*';
 
 class AppState extends ChangeNotifier {
-  AppState._(this.store, this.packStore, this.embedder);
+  AppState._(this.store, this.packStore, this.embedder, this.photosDir);
 
   final UserStore store;
   final PackStore packStore;
   final Embedder embedder;
+  final Directory photosDir;
   final Map<String, MuseumPack> packs = {};
   List<RemotePack>? catalog;
   String? catalogError;
@@ -751,7 +839,8 @@ class AppState extends ChangeNotifier {
     final packStore = await PackStore.open();
     await packStore.installEmbedded();
     final embedder = await Embedder.load();
-    final s = AppState._(store, packStore, embedder);
+    final photos = Directory('${(await getApplicationSupportDirectory()).path}/photos')..createSync(recursive: true);
+    final s = AppState._(store, packStore, embedder, photos);
     for (final d in packStore.installedDirs()) {
       try {
         final p = await MuseumPack.loadDir(d);
@@ -833,6 +922,76 @@ class AppState extends ChangeNotifier {
   void toggleFavorite(String id) {
     store.toggleFavorite(id);
     notifyListeners();
+  }
+
+  /// Œuvre d'un musée installé, à partir de son identifiant « musée:inventaire ».
+  Artwork? artworkById(String id) {
+    final i = id.indexOf(':');
+    return i < 0 ? null : packs[id.substring(0, i)]?.artwork(id);
+  }
+
+  bool isFavorite(String id) => store.isFavorite(id);
+
+  List<Artwork> favorites() => [
+        for (final id in store.favorites())
+          if (artworkById(id) case final a?) a
+      ];
+
+  // --- photos et notes personnelles
+
+  List<(int, File)> photosOf(String artworkId) => [
+        for (final (id, path) in store.photos(artworkId))
+          if (File('${photosDir.path}/$path').existsSync()) (id, File('${photosDir.path}/$path'))
+      ];
+
+  /// Photo de l'utilisateur à afficher à la place de l'image du musée (la plus récente), sinon null.
+  File? coverOf(String artworkId) {
+    final p = photosOf(artworkId);
+    return p.isEmpty ? null : p.first.$2;
+  }
+
+  Future<void> savePhoto(Artwork a, Uint8List jpeg) async {
+    final name = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await File('${photosDir.path}/$name').writeAsBytes(jpeg, flush: true);
+    store.addPhoto(a.id, a.museumId, name);
+    notifyListeners();
+  }
+
+  void deletePhoto(int id) {
+    final path = store.deletePhoto(id);
+    if (path != null) {
+      try {
+        File('${photosDir.path}/$path').deleteSync();
+      } catch (_) {}
+    }
+    notifyListeners();
+  }
+
+  String? noteOf(String artworkId) => store.note(artworkId);
+
+  /// Sauvegarde silencieuse (pas de notifyListeners : appelée à chaque frappe).
+  void saveNote(String artworkId, String body) => store.setNote(artworkId, body);
+
+  // --- wildcards : œuvres au hasard dans des musées au hasard, sans répétitions récentes
+
+  final _rand = math.Random();
+
+  List<Artwork> wildcards(int n) {
+    final recent = (store.getSetting('wild_recent') ?? '').split('\n').where((x) => x.isNotEmpty).toList();
+    final seen = recent.toSet();
+    final pool = packs.values.toList();
+    final out = <Artwork>[];
+    for (var tries = 0; out.length < n && pool.isNotEmpty && tries < n * 4; tries++) {
+      final p = pool[_rand.nextInt(pool.length)];
+      final got = p.randomArtworks(1, seen);
+      if (got.isEmpty) continue;
+      out.add(got.first);
+      seen.add(got.first.id);
+      recent.add(got.first.id);
+    }
+    final keep = recent.length > 500 ? recent.sublist(recent.length - 500) : recent;
+    store.setSetting('wild_recent', keep.join('\n'));
+    return out;
   }
 
   // --- reconnaissance

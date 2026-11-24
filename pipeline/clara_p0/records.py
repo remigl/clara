@@ -83,6 +83,10 @@ class Artwork:
     artist_teachers: str | None = None
     artist_students: str | None = None
     artist_occupations: str | None = None
+    artist_notable_works: str | None = None
+    artist_style: str | None = None
+    artist_anecdotes: str | None = None
+    artist_extra_credit: str | None = None
     medium: str | None = None
     height_cm: float | None = None
     width_cm: float | None = None

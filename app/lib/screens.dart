@@ -1,10 +1,13 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'artwork_screen.dart';
 import 'core.dart';
+import 'wildcards.dart';
 
 // ---------------------------------------------------------------------------- coquille
 
@@ -24,8 +27,9 @@ class _HomeShellState extends State<HomeShell> {
     final s = widget.state;
     // La caméra n'existe que sur l'onglet Scanner (libérée ailleurs, pour la batterie).
     final body = switch (_tab) {
-      0 => ScanScreen(state: s, onOpenMuseums: () => setState(() => _tab = 2)),
+      0 => ScanScreen(state: s, onOpenMuseums: () => setState(() => _tab = 3)),
       1 => CollectionScreen(state: s),
+      2 => WildcardsScreen(state: s, onOpenMuseums: () => setState(() => _tab = 3)),
       _ => MuseumsScreen(state: s),
     };
     return Scaffold(
@@ -36,6 +40,7 @@ class _HomeShellState extends State<HomeShell> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.center_focus_strong_outlined), label: 'Scanner'),
           NavigationDestination(icon: Icon(Icons.collections_outlined), label: 'Ma collection'),
+          NavigationDestination(icon: Icon(Icons.style_outlined), label: 'Wildcards'),
           NavigationDestination(icon: Icon(Icons.museum_outlined), label: 'Musées'),
         ],
       ),
@@ -45,7 +50,8 @@ class _HomeShellState extends State<HomeShell> {
 
 // ---------------------------------------------------------------------------- éléments communs
 
-Widget artThumb(Artwork a, {double? width, double? height, BoxFit fit = BoxFit.cover}) {
+/// Vignette d'une œuvre ; [cover] = photo personnelle à montrer à la place de l'image du musée.
+Widget artThumb(Artwork a, {double? width, double? height, BoxFit fit = BoxFit.cover, File? cover}) {
   Widget placeholder() => Container(
         width: width,
         height: height,
@@ -53,7 +59,7 @@ Widget artThumb(Artwork a, {double? width, double? height, BoxFit fit = BoxFit.c
         alignment: Alignment.center,
         child: const Icon(Icons.image_not_supported_outlined, color: Color(0xFF9C8B78)),
       );
-  final f = a.thumbFile;
+  final f = cover ?? a.thumbFile;
   if (f == null) return placeholder();
   return Image.file(f, width: width, height: height, fit: fit, errorBuilder: (_, __, ___) => placeholder());
 }
@@ -194,7 +200,7 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
       final Uint8List bytes = await shot.readAsBytes();
       final cands = await widget.state.recognize(bytes);
       if (!mounted) return;
-      await _showResult(cands);
+      await _showResult(cands, bytes);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Échec de la reconnaissance : $e')));
@@ -204,7 +210,7 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showResult(List<Candidate> cands) async {
+  Future<void> _showResult(List<Candidate> cands, Uint8List photo) async {
     final s = widget.state;
     final museumId = s.current?.id;
     if (cands.isEmpty) {
@@ -223,6 +229,8 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
       return;
     }
     final isNew = s.add(chosen);
+    await s.savePhoto(chosen, photo); // la photo du scan est liée à l'œuvre (affichée sur sa fiche)
+    if (!mounted) return;
     s.store.logScan(museumId, cands, chosen.id == cands.first.artwork.id ? 'user_confirmed' : 'user_picked_alt',
         chosen: chosen.id);
     HapticFeedback.mediumImpact();
@@ -450,6 +458,26 @@ class CollectionScreen extends StatelessWidget {
   const CollectionScreen({super.key, required this.state});
   final AppState state;
 
+  Widget _tile(BuildContext context, Artwork a, List<Artwork> list, {bool showFav = false}) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: () => openArtwork(context, state, a, list: list),
+      borderRadius: BorderRadius.circular(8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Expanded(
+          child: Stack(fit: StackFit.expand, children: [
+            ClipRRect(borderRadius: BorderRadius.circular(8), child: artThumb(a, cover: state.coverOf(a.id))),
+            if (showFav && state.isFavorite(a.id))
+              const Positioned(
+                  right: 4, top: 4, child: Icon(Icons.favorite, color: Colors.white, size: 16, shadows: [Shadow(blurRadius: 3)])),
+          ]),
+        ),
+        const SizedBox(height: 4),
+        Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -457,6 +485,7 @@ class CollectionScreen extends StatelessWidget {
       builder: (context, _) {
         final counts = state.collectedByMuseum();
         final museums = state.sortedPacks().where((p) => (counts[p.id] ?? 0) > 0).toList();
+        final favorites = state.favorites();
         final theme = Theme.of(context);
         final total = counts.values.fold<int>(0, (a, b) => a + b);
         return SafeArea(
@@ -475,7 +504,34 @@ class CollectionScreen extends StatelessWidget {
                     : '$total œuvre${total > 1 ? 's' : ''} dans ${counts.length} musée${counts.length > 1 ? 's' : ''}'),
               ),
             ),
-            if (museums.isEmpty)
+            // --- favoris : apparaît dès le premier favori
+            if (favorites.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                  child: Row(children: [
+                    const Icon(Icons.favorite, color: Colors.redAccent, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Favoris', style: theme.textTheme.titleMedium),
+                    const SizedBox(width: 6),
+                    Text('${favorites.length}', style: theme.textTheme.bodySmall),
+                  ]),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 170,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: favorites.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, i) => SizedBox(width: 120, child: _tile(context, favorites[i], favorites)),
+                  ),
+                ),
+              ),
+            ],
+            if (museums.isEmpty && favorites.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(
@@ -489,7 +545,7 @@ class CollectionScreen extends StatelessWidget {
             for (final p in museums) ...[
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(p.name, style: theme.textTheme.titleMedium),
                     Text('${p.city}, ${p.countryName}', style: theme.textTheme.bodySmall),
@@ -506,17 +562,7 @@ class CollectionScreen extends StatelessWidget {
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.75),
                     itemCount: items.length,
-                    itemBuilder: (context, i) {
-                      final a = items[i];
-                      return InkWell(
-                        onTap: () => openArtwork(context, state, a),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                          Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(8), child: artThumb(a))),
-                          const SizedBox(height: 4),
-                          Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
-                        ]),
-                      );
-                    },
+                    itemBuilder: (context, i) => _tile(context, items[i], items, showFav: true),
                   );
                 }),
               ),
@@ -583,7 +629,12 @@ class _MuseumsScreenState extends State<MuseumsScreen> {
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) {
-        final groups = groupByCountryCity<_MuseumEntry>(_entries(), (e) => e.countryName, (e) => e.city, (e) => e.name);
+        final entries = _entries();
+        final byContinent = <String, List<_MuseumEntry>>{};
+        for (final e in entries) {
+          byContinent.putIfAbsent(continentOf(e.country), () => []).add(e);
+        }
+        final installed = entries.where((e) => e.pack != null).length;
         return SafeArea(
           child: RefreshIndicator(
             onRefresh: s.refreshCatalog,
@@ -612,10 +663,26 @@ class _MuseumsScreenState extends State<MuseumsScreen> {
                           : 'Liste des musées non actualisée (${s.catalogError}) : dernière liste connue affichée.',
                       style: theme.textTheme.bodySmall),
                 ),
-              for (final (country, _, cities) in groups)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(
+                    '${entries.length} musée${entries.length > 1 ? 's' : ''} · $installed sur ce téléphone',
+                    style: theme.textTheme.bodySmall),
+              ),
+              for (final continent in continents)
+                if (byContinent[continent] case final list?)
+                  for (final (i, (country, _, cities)) in groupByCountryCity<_MuseumEntry>(
+                          list, (e) => e.countryName, (e) => e.city, (e) => e.name)
+                      .indexed) ...[
+                if (i == 0)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                    child: Text(continent.toUpperCase(),
+                        style: theme.textTheme.labelLarge
+                            ?.copyWith(letterSpacing: 1.5, color: theme.colorScheme.primary)),
+                  ),
                 ExpansionTile(
-                  initiallyExpanded: groups.length <= 3 || _query.isNotEmpty ||
-                      cities.any((c) => c.any((e) => e.pack != null)),
+                  initiallyExpanded: _query.isNotEmpty || cities.any((c) => c.any((e) => e.pack != null)),
                   leading: Text(countryFlag(cities.first.first.country), style: const TextStyle(fontSize: 24)),
                   title: Text(country, style: theme.textTheme.titleMedium),
                   subtitle: Text(() {
@@ -633,13 +700,41 @@ class _MuseumsScreenState extends State<MuseumsScreen> {
                       ),
                       for (final e in museums) _museumTile(context, e),
                     ],
+                    _downloadAll(context, [for (final c in cities) ...c]),
                   ],
                 ),
+              ],
               const SizedBox(height: 24),
             ]),
           ),
         );
       },
+    );
+  }
+
+  /// « Tout télécharger » pour un pays, quand plusieurs de ses musées manquent.
+  Widget _downloadAll(BuildContext context, List<_MuseumEntry> list) {
+    final s = widget.state;
+    final todo = [
+      for (final e in list)
+        if (e.pack == null && e.remote != null && s.isCompatible(e.remote!) && !s.downloads.containsKey(e.id)) e.remote!
+    ];
+    if (todo.length < 2) return const SizedBox.shrink();
+    final bytes = todo.fold<int>(0, (a, r) => a + r.bytes);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          icon: const Icon(Icons.download_for_offline_outlined),
+          label: Text('Télécharger les ${todo.length} musées (${formatBytes(bytes)})'),
+          onPressed: () async {
+            for (final r in todo) {
+              await _download(r);
+            }
+          },
+        ),
+      ),
     );
   }
 
@@ -786,14 +881,16 @@ class _MuseumDetailScreenState extends State<MuseumDetailScreen> {
                   final a = items[i];
                   final got = s.isCollected(a.id);
                   return ListTile(
-                    leading: ClipRRect(borderRadius: BorderRadius.circular(6), child: artThumb(a, width: 52, height: 52)),
+                    leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: artThumb(a, width: 52, height: 52, cover: s.coverOf(a.id))),
                     title: Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text([a.artist ?? 'Anonyme', if (a.place.isNotEmpty) a.place].join(' · '),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                     trailing: got
                         ? Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary)
                         : const Icon(Icons.radio_button_unchecked, color: Colors.black26),
-                    onTap: () => openArtwork(context, s, a),
+                    onTap: () => openArtwork(context, s, a, list: items),
                   );
                 },
               ),
@@ -805,210 +902,3 @@ class _MuseumDetailScreenState extends State<MuseumDetailScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------- fiche
-
-void openArtwork(BuildContext context, AppState s, Artwork a) {
-  Navigator.of(context).push(MaterialPageRoute(builder: (_) => ArtworkScreen(state: s, artwork: a)));
-}
-
-class ArtworkScreen extends StatelessWidget {
-  const ArtworkScreen({super.key, required this.state, required this.artwork});
-  final AppState state;
-  final Artwork artwork;
-
-  static const _sectionIcons = {
-    'Iconographie': Icons.auto_stories_outlined,
-    'Création': Icons.brush_outlined,
-    'Provenance': Icons.history_edu_outlined,
-    'Expositions': Icons.event_outlined,
-    'Sur Wikipédia': Icons.menu_book_outlined,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final a = artwork;
-    final theme = Theme.of(context);
-    final artist = a.pack.artist(a.artistId);
-    final glossary = a.pack.glossaryFor(a.id);
-    final others = a.pack.otherWorksBy(a.artistId, a.id);
-    return ListenableBuilder(
-      listenable: state,
-      builder: (context, _) {
-        final got = state.isCollected(a.id);
-        final fav = state.store.isFavorite(a.id);
-        String? dims;
-        if (a.heightCm != null && a.widthCm != null) {
-          String f(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-          dims = '${f(a.heightCm!)} × ${f(a.widthCm!)} cm';
-        }
-        final facts = <(String, String?)>[
-          ('Date', a.date),
-          ('Technique', a.medium),
-          ('Dimensions', dims),
-          ...a.facts.where((f) => f.$1 != 'Matériaux' || a.medium == null).map((f) => (f.$1, f.$2)),
-          ('Musée', '${a.pack.name}, ${a.pack.city}'),
-          ('Emplacement', a.place),
-          ('Inventaire', a.inventory),
-        ];
-        Widget heading(String t, IconData icon) => Padding(
-              padding: const EdgeInsets.only(top: 24, bottom: 8),
-              child: Row(children: [
-                Icon(icon, size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(t, style: theme.textTheme.titleMedium),
-              ]),
-            );
-        Widget row(String label, String value) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: label.isEmpty
-                  ? Text(value, style: theme.textTheme.bodyMedium?.copyWith(height: 1.4))
-                  : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      SizedBox(width: 120, child: Text(label, style: theme.textTheme.labelLarge)),
-                      Expanded(child: Text(value)),
-                    ]),
-            );
-        Widget credit(String? c) => c == null
-            ? const SizedBox.shrink()
-            : Padding(padding: const EdgeInsets.only(top: 6), child: Text(c, style: theme.textTheme.bodySmall));
-
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(a.pack.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            actions: [
-              IconButton(
-                tooltip: 'Favori',
-                icon: Icon(fav ? Icons.favorite : Icons.favorite_border),
-                onPressed: () => state.toggleFavorite(a.id),
-              ),
-            ],
-          ),
-          body: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), children: [
-            GestureDetector(
-              onTap: a.thumbFile == null
-                  ? null
-                  : () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => Scaffold(
-                            backgroundColor: Colors.black,
-                            appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white),
-                            body: InteractiveViewer(
-                                maxScale: 6, child: Center(child: artThumb(a, fit: BoxFit.contain))),
-                          ))),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(height: 320, child: artThumb(a, fit: BoxFit.contain)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(a.title, style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 4),
-            Text(a.artistLine, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (got)
-              Row(children: [
-                Icon(Icons.check_circle, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                const Text('Dans ta collection'),
-              ])
-            else
-              OutlinedButton.icon(
-                icon: const Icon(Icons.add),
-                label: const Text('Je l\'ai vue : ajouter à ma collection'),
-                onPressed: () {
-                  final isNew = state.add(a, via: 'manual');
-                  showAdded(context, state, a, isNew);
-                },
-              ),
-
-            // --- l'œuvre
-            if (a.description != null && a.description!.isNotEmpty) ...[
-              heading('À propos', Icons.info_outline),
-              Text(a.description!, style: theme.textTheme.bodyLarge?.copyWith(height: 1.45)),
-              credit(a.descriptionCredit),
-            ],
-            heading('Détails', Icons.list_alt_outlined),
-            for (final (label, value) in facts)
-              if (value != null && value.isNotEmpty) row(label, value),
-
-            // --- sections croisées : iconographie, création, provenance, expositions…
-            for (final (title, items) in a.sections)
-              if (items.isNotEmpty) ...[
-                heading(title, _sectionIcons[title] ?? Icons.notes_outlined),
-                for (final (label, value) in items)
-                  if (label == 'Source') credit(value) else row(label, value),
-              ],
-
-            // --- l'artiste
-            if (artist != null && artist.hasDetails) ...[
-              heading('L\'artiste : ${artist.name}', Icons.person_outline),
-              if (artist.lifeLine != null) row('', artist.lifeLine!),
-              if (artist.occupations != null) row('Métier', artist.occupations!),
-              if (artist.nationality != null) row('Nationalité', artist.nationality!),
-              if (artist.movements != null) row('Mouvements', artist.movements!),
-              if (artist.teachers != null) row('Maîtres', artist.teachers!),
-              if (artist.students != null) row('Élèves', artist.students!),
-              if (artist.bio != null) ...[
-                const SizedBox(height: 8),
-                Text(artist.bio!, style: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
-                credit(artist.bioCredit),
-              ],
-            ],
-            if (others.isNotEmpty) ...[
-              heading('Du même artiste, ici', Icons.collections_outlined),
-              SizedBox(
-                height: 150,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: others.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
-                  itemBuilder: (context, i) {
-                    final o = others[i];
-                    return InkWell(
-                      onTap: () => openArtwork(context, state, o),
-                      child: SizedBox(
-                        width: 110,
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Expanded(
-                            child: Stack(fit: StackFit.expand, children: [
-                              ClipRRect(borderRadius: BorderRadius.circular(8), child: artThumb(o)),
-                              if (state.isCollected(o.id))
-                                const Positioned(
-                                    right: 4, top: 4, child: Icon(Icons.check_circle, color: Colors.white, size: 18)),
-                            ]),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(o.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
-                        ]),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-
-            // --- pour comprendre : mouvements et genres expliqués
-            if (glossary.isNotEmpty) ...[
-              heading('Pour comprendre', Icons.school_outlined),
-              for (final g in glossary)
-                Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ExpansionTile(
-                    title: Text(g.term[0].toUpperCase() + g.term.substring(1)),
-                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(g.text, style: theme.textTheme.bodyMedium?.copyWith(height: 1.45)),
-                      credit(g.credit),
-                    ],
-                  ),
-                ),
-            ],
-
-            heading('Sources', Icons.link),
-            if (a.credit != null) Text(a.credit!, style: theme.textTheme.bodySmall),
-            if (a.sourceUrl != null) SelectableText(a.sourceUrl!, style: theme.textTheme.bodySmall),
-          ]),
-        );
-      },
-    );
-  }
-}

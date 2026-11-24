@@ -199,7 +199,8 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
         if a.artist_qid or a.artist_display:
             art_id = a.artist_qid or f"name:{a.artist_display}"
             db.execute("""INSERT INTO artist (id,name,birth_year,death_year,nationality,birth_place,death_place,
-                          occupations,movements,teachers,students,bio,bio_credit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                          occupations,movements,teachers,students,bio,bio_credit,notable_works,style,anecdotes,extra_credit)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                           ON CONFLICT(id) DO UPDATE SET
                             bio = COALESCE(artist.bio, excluded.bio), bio_credit = COALESCE(artist.bio_credit, excluded.bio_credit),
                             birth_place = COALESCE(artist.birth_place, excluded.birth_place),
@@ -208,10 +209,15 @@ def build(museum: Museum, sources: list[Source], artworks: list[Artwork], embedd
                             teachers = COALESCE(artist.teachers, excluded.teachers),
                             students = COALESCE(artist.students, excluded.students),
                             occupations = COALESCE(artist.occupations, excluded.occupations),
-                            nationality = COALESCE(artist.nationality, excluded.nationality)""",
+                            nationality = COALESCE(artist.nationality, excluded.nationality),
+                            notable_works = COALESCE(artist.notable_works, excluded.notable_works),
+                            style = COALESCE(artist.style, excluded.style),
+                            anecdotes = COALESCE(artist.anecdotes, excluded.anecdotes),
+                            extra_credit = COALESCE(artist.extra_credit, excluded.extra_credit)""",
                        (art_id, a.artist_display or "Anonyme", a.artist_birth_year, a.artist_death_year,
                         a.artist_nationality, a.artist_birth_place, a.artist_death_place, a.artist_occupations,
-                        a.artist_movements, a.artist_teachers, a.artist_students, a.artist_bio, a.artist_bio_credit))
+                        a.artist_movements, a.artist_teachers, a.artist_students, a.artist_bio, a.artist_bio_credit,
+                        a.artist_notable_works, a.artist_style, a.artist_anecdotes, a.artist_extra_credit))
         else:
             art_id = None
         for term, text, credit in a.glossary:

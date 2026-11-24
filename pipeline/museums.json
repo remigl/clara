@@ -1,25 +1,965 @@
 {
-  "_doc": "Musées proposés dans l'app. source = smk (API SMK, salles connues, croisée avec Wikidata) ou wikidata. qid = identifiant Wikidata du musée, ou search = nom à rechercher (résolu à la construction, vérifié dans les annotations). match = collection (P195, défaut), location (P276) ou both. types = painting (défaut), drawing, watercolor, pastel, miniature. city, country, country_name : affichage et tri dans l'app.",
-  "museums": [
-    {"id": "dk-smk", "source": "smk", "search": "Statens Museum for Kunst", "search_lang": "da", "country": "DK", "country_name": "Danemark", "city": "Copenhague"},
-    {"id": "be-mrbab", "source": "wikidata", "qid": "Q377500", "country": "BE", "country_name": "Belgique", "city": "Bruxelles"},
-    {"id": "be-kmska", "source": "wikidata", "qid": "Q1471477", "country": "BE", "country_name": "Belgique", "city": "Anvers"},
-    {"id": "fr-louvre", "source": "wikidata", "qid": "Q19675", "country": "FR", "country_name": "France", "city": "Paris"},
-    {"id": "fr-orsay", "source": "wikidata", "qid": "Q23402", "country": "FR", "country_name": "France", "city": "Paris"},
-    {"id": "nl-rijksmuseum", "source": "wikidata", "qid": "Q190804", "country": "NL", "country_name": "Pays-Bas", "city": "Amsterdam"},
-    {"id": "nl-vangogh", "source": "wikidata", "qid": "Q224124", "country": "NL", "country_name": "Pays-Bas", "city": "Amsterdam"},
-    {"id": "nl-mauritshuis", "source": "wikidata", "qid": "Q221092", "country": "NL", "country_name": "Pays-Bas", "city": "La Haye"},
-    {"id": "at-khm", "source": "wikidata", "qid": "Q95569", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "at-belvedere", "source": "wikidata", "qid": "Q303139", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "at-albertina", "source": "wikidata", "qid": "Q371908", "types": ["painting", "drawing", "watercolor", "pastel"], "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "at-leopold", "source": "wikidata", "qid": "Q59435", "match": "both", "types": ["painting", "drawing", "watercolor"], "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "at-wienmuseum", "source": "wikidata", "qid": "Q505873", "match": "both", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "at-akademie", "source": "wikidata", "search": "Gemäldegalerie der Akademie der bildenden Künste Wien", "match": "both", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "at-liechtenstein", "source": "wikidata", "search": "Liechtenstein Museum", "match": "both", "country": "AT", "country_name": "Autriche", "city": "Vienne"},
-    {"id": "de-altepinakothek", "source": "wikidata", "qid": "Q154568", "match": "both", "country": "DE", "country_name": "Allemagne", "city": "Munich"},
-    {"id": "de-gemaeldegalerie", "source": "wikidata", "qid": "Q165631", "country": "DE", "country_name": "Allemagne", "city": "Berlin"},
-    {"id": "es-prado", "source": "wikidata", "qid": "Q160112", "country": "ES", "country_name": "Espagne", "city": "Madrid"},
-    {"id": "gb-nationalgallery", "source": "wikidata", "qid": "Q180788", "country": "GB", "country_name": "Royaume-Uni", "city": "Londres"},
-    {"id": "it-uffizi", "source": "wikidata", "qid": "Q51252", "country": "IT", "country_name": "Italie", "city": "Florence"}
-  ]
+ "_doc": "Musées proposés dans l'app. source = smk (API SMK, salles connues, croisée avec Wikidata) ou wikidata. qid = identifiant Wikidata du musée, ou search = nom à rechercher (résolu à la construction, vérifié dans les annotations). match = collection (P195, défaut), location (P276) ou both. types = painting (défaut), drawing, watercolor, pastel, miniature. city, country, country_name : affichage et tri dans l'app.",
+ "museums": [
+  {
+   "id": "dk-smk",
+   "source": "smk",
+   "search": "Statens Museum for Kunst",
+   "search_lang": "da",
+   "country": "DK",
+   "country_name": "Danemark",
+   "city": "Copenhague"
+  },
+  {
+   "id": "be-mrbab",
+   "source": "wikidata",
+   "qid": "Q377500",
+   "country": "BE",
+   "country_name": "Belgique",
+   "city": "Bruxelles"
+  },
+  {
+   "id": "be-kmska",
+   "source": "wikidata",
+   "qid": "Q1471477",
+   "country": "BE",
+   "country_name": "Belgique",
+   "city": "Anvers"
+  },
+  {
+   "id": "fr-louvre",
+   "source": "wikidata",
+   "qid": "Q19675",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Paris"
+  },
+  {
+   "id": "fr-orsay",
+   "source": "wikidata",
+   "qid": "Q23402",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Paris"
+  },
+  {
+   "id": "nl-rijksmuseum",
+   "source": "wikidata",
+   "qid": "Q190804",
+   "country": "NL",
+   "country_name": "Pays-Bas",
+   "city": "Amsterdam"
+  },
+  {
+   "id": "nl-vangogh",
+   "source": "wikidata",
+   "qid": "Q224124",
+   "country": "NL",
+   "country_name": "Pays-Bas",
+   "city": "Amsterdam"
+  },
+  {
+   "id": "nl-mauritshuis",
+   "source": "wikidata",
+   "qid": "Q221092",
+   "country": "NL",
+   "country_name": "Pays-Bas",
+   "city": "La Haye"
+  },
+  {
+   "id": "at-khm",
+   "source": "wikidata",
+   "qid": "Q95569",
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "at-belvedere",
+   "source": "wikidata",
+   "qid": "Q303139",
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "at-albertina",
+   "source": "wikidata",
+   "qid": "Q371908",
+   "types": [
+    "painting",
+    "drawing",
+    "watercolor",
+    "pastel"
+   ],
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "at-leopold",
+   "source": "wikidata",
+   "qid": "Q59435",
+   "match": "both",
+   "types": [
+    "painting",
+    "drawing",
+    "watercolor"
+   ],
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "at-wienmuseum",
+   "source": "wikidata",
+   "qid": "Q505873",
+   "match": "both",
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "at-akademie",
+   "source": "wikidata",
+   "search": "Gemäldegalerie der Akademie der bildenden Künste Wien",
+   "match": "both",
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "at-liechtenstein",
+   "source": "wikidata",
+   "search": "Liechtenstein Museum",
+   "match": "both",
+   "country": "AT",
+   "country_name": "Autriche",
+   "city": "Vienne"
+  },
+  {
+   "id": "de-altepinakothek",
+   "source": "wikidata",
+   "qid": "Q154568",
+   "match": "both",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Munich"
+  },
+  {
+   "id": "de-gemaeldegalerie",
+   "source": "wikidata",
+   "qid": "Q165631",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Berlin"
+  },
+  {
+   "id": "es-prado",
+   "source": "wikidata",
+   "qid": "Q160112",
+   "country": "ES",
+   "country_name": "Espagne",
+   "city": "Madrid"
+  },
+  {
+   "id": "gb-nationalgallery",
+   "source": "wikidata",
+   "qid": "Q180788",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Londres"
+  },
+  {
+   "id": "it-uffizi",
+   "source": "wikidata",
+   "qid": "Q51252",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Florence"
+  },
+  {
+   "id": "us-met",
+   "source": "wikidata",
+   "search": "Metropolitan Museum of Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "New York"
+  },
+  {
+   "id": "us-moma",
+   "source": "wikidata",
+   "search": "Museum of Modern Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "New York"
+  },
+  {
+   "id": "us-frick",
+   "source": "wikidata",
+   "search": "Frick Collection",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "New York"
+  },
+  {
+   "id": "us-brooklyn",
+   "source": "wikidata",
+   "search": "Brooklyn Museum",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "New York"
+  },
+  {
+   "id": "us-aic",
+   "source": "wikidata",
+   "search": "Art Institute of Chicago",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Chicago"
+  },
+  {
+   "id": "us-nga",
+   "source": "wikidata",
+   "search": "National Gallery of Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Washington"
+  },
+  {
+   "id": "us-saam",
+   "source": "wikidata",
+   "search": "Smithsonian American Art Museum",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Washington"
+  },
+  {
+   "id": "us-mfa",
+   "source": "wikidata",
+   "search": "Museum of Fine Arts, Boston",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Boston"
+  },
+  {
+   "id": "us-gardner",
+   "source": "wikidata",
+   "search": "Isabella Stewart Gardner Museum",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Boston"
+  },
+  {
+   "id": "us-pma",
+   "source": "wikidata",
+   "search": "Philadelphia Museum of Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Philadelphie"
+  },
+  {
+   "id": "us-getty",
+   "source": "wikidata",
+   "search": "J. Paul Getty Museum",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Los Angeles"
+  },
+  {
+   "id": "us-lacma",
+   "source": "wikidata",
+   "search": "Los Angeles County Museum of Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Los Angeles"
+  },
+  {
+   "id": "us-cma",
+   "source": "wikidata",
+   "search": "Cleveland Museum of Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Cleveland"
+  },
+  {
+   "id": "us-dia",
+   "source": "wikidata",
+   "search": "Detroit Institute of Arts",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Detroit"
+  },
+  {
+   "id": "us-nelson",
+   "source": "wikidata",
+   "search": "Nelson-Atkins Museum of Art",
+   "search_lang": "en",
+   "country": "US",
+   "country_name": "États-Unis",
+   "city": "Kansas City"
+  },
+  {
+   "id": "ca-ngc",
+   "source": "wikidata",
+   "search": "National Gallery of Canada",
+   "search_lang": "en",
+   "country": "CA",
+   "country_name": "Canada",
+   "city": "Ottawa"
+  },
+  {
+   "id": "ca-mbam",
+   "source": "wikidata",
+   "search": "Montreal Museum of Fine Arts",
+   "search_lang": "en",
+   "country": "CA",
+   "country_name": "Canada",
+   "city": "Montréal"
+  },
+  {
+   "id": "ca-ago",
+   "source": "wikidata",
+   "search": "Art Gallery of Ontario",
+   "search_lang": "en",
+   "country": "CA",
+   "country_name": "Canada",
+   "city": "Toronto"
+  },
+  {
+   "id": "mx-munal",
+   "source": "wikidata",
+   "search": "Museo Nacional de Arte",
+   "search_lang": "es",
+   "country": "MX",
+   "country_name": "Mexique",
+   "city": "Mexico"
+  },
+  {
+   "id": "br-masp",
+   "source": "wikidata",
+   "search": "São Paulo Museum of Art",
+   "search_lang": "en",
+   "country": "BR",
+   "country_name": "Brésil",
+   "city": "São Paulo"
+  },
+  {
+   "id": "ar-mnba",
+   "source": "wikidata",
+   "search": "Museo Nacional de Bellas Artes (Buenos Aires)",
+   "search_lang": "es",
+   "country": "AR",
+   "country_name": "Argentine",
+   "city": "Buenos Aires"
+  },
+  {
+   "id": "jp-tnm",
+   "source": "wikidata",
+   "search": "Tokyo National Museum",
+   "search_lang": "en",
+   "country": "JP",
+   "country_name": "Japon",
+   "city": "Tokyo"
+  },
+  {
+   "id": "jp-nmwa",
+   "source": "wikidata",
+   "search": "National Museum of Western Art",
+   "search_lang": "en",
+   "country": "JP",
+   "country_name": "Japon",
+   "city": "Tokyo"
+  },
+  {
+   "id": "jp-ohara",
+   "source": "wikidata",
+   "search": "Ohara Museum of Art",
+   "search_lang": "en",
+   "country": "JP",
+   "country_name": "Japon",
+   "city": "Kurashiki"
+  },
+  {
+   "id": "cn-palace",
+   "source": "wikidata",
+   "search": "Palace Museum",
+   "search_lang": "en",
+   "country": "CN",
+   "country_name": "Chine",
+   "city": "Pékin"
+  },
+  {
+   "id": "tw-npm",
+   "source": "wikidata",
+   "search": "National Palace Museum",
+   "search_lang": "en",
+   "country": "TW",
+   "country_name": "Taïwan",
+   "city": "Taipei"
+  },
+  {
+   "id": "kr-nmk",
+   "source": "wikidata",
+   "search": "National Museum of Korea",
+   "search_lang": "en",
+   "country": "KR",
+   "country_name": "Corée du Sud",
+   "city": "Séoul"
+  },
+  {
+   "id": "il-israel",
+   "source": "wikidata",
+   "search": "Israel Museum",
+   "search_lang": "en",
+   "country": "IL",
+   "country_name": "Israël",
+   "city": "Jérusalem"
+  },
+  {
+   "id": "au-ngv",
+   "source": "wikidata",
+   "search": "National Gallery of Victoria",
+   "search_lang": "en",
+   "country": "AU",
+   "country_name": "Australie",
+   "city": "Melbourne"
+  },
+  {
+   "id": "au-agnsw",
+   "source": "wikidata",
+   "search": "Art Gallery of New South Wales",
+   "search_lang": "en",
+   "country": "AU",
+   "country_name": "Australie",
+   "city": "Sydney"
+  },
+  {
+   "id": "au-nga",
+   "source": "wikidata",
+   "search": "National Gallery of Australia",
+   "search_lang": "en",
+   "country": "AU",
+   "country_name": "Australie",
+   "city": "Canberra"
+  },
+  {
+   "id": "nz-tepapa",
+   "source": "wikidata",
+   "search": "Museum of New Zealand Te Papa Tongarewa",
+   "search_lang": "en",
+   "country": "NZ",
+   "country_name": "Nouvelle-Zélande",
+   "city": "Wellington"
+  },
+  {
+   "id": "gb-tate",
+   "source": "wikidata",
+   "search": "Tate Britain",
+   "search_lang": "en",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Londres"
+  },
+  {
+   "id": "gb-wallace",
+   "source": "wikidata",
+   "search": "Wallace Collection",
+   "search_lang": "en",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Londres"
+  },
+  {
+   "id": "gb-courtauld",
+   "source": "wikidata",
+   "search": "Courtauld Gallery",
+   "search_lang": "en",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Londres"
+  },
+  {
+   "id": "gb-fitzwilliam",
+   "source": "wikidata",
+   "search": "Fitzwilliam Museum",
+   "search_lang": "en",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Cambridge"
+  },
+  {
+   "id": "gb-ashmolean",
+   "source": "wikidata",
+   "search": "Ashmolean Museum",
+   "search_lang": "en",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Oxford"
+  },
+  {
+   "id": "gb-sng",
+   "source": "wikidata",
+   "search": "Scottish National Gallery",
+   "search_lang": "en",
+   "country": "GB",
+   "country_name": "Royaume-Uni",
+   "city": "Édimbourg"
+  },
+  {
+   "id": "ie-ngi",
+   "source": "wikidata",
+   "search": "National Gallery of Ireland",
+   "search_lang": "en",
+   "country": "IE",
+   "country_name": "Irlande",
+   "city": "Dublin"
+  },
+  {
+   "id": "ru-hermitage",
+   "source": "wikidata",
+   "search": "Hermitage Museum",
+   "search_lang": "en",
+   "country": "RU",
+   "country_name": "Russie",
+   "city": "Saint-Pétersbourg"
+  },
+  {
+   "id": "ru-tretyakov",
+   "source": "wikidata",
+   "search": "Tretyakov Gallery",
+   "search_lang": "en",
+   "country": "RU",
+   "country_name": "Russie",
+   "city": "Moscou"
+  },
+  {
+   "id": "ru-pushkin",
+   "source": "wikidata",
+   "search": "Pushkin Museum",
+   "search_lang": "en",
+   "country": "RU",
+   "country_name": "Russie",
+   "city": "Moscou"
+  },
+  {
+   "id": "ch-basel",
+   "source": "wikidata",
+   "search": "Kunstmuseum Basel",
+   "search_lang": "de",
+   "country": "CH",
+   "country_name": "Suisse",
+   "city": "Bâle"
+  },
+  {
+   "id": "ch-zurich",
+   "source": "wikidata",
+   "search": "Kunsthaus Zürich",
+   "search_lang": "de",
+   "country": "CH",
+   "country_name": "Suisse",
+   "city": "Zurich"
+  },
+  {
+   "id": "ch-geneve",
+   "source": "wikidata",
+   "search": "Musée d'Art et d'Histoire de Genève",
+   "search_lang": "fr",
+   "country": "CH",
+   "country_name": "Suisse",
+   "city": "Genève"
+  },
+  {
+   "id": "se-nationalmuseum",
+   "source": "wikidata",
+   "search": "Nationalmuseum",
+   "search_lang": "sv",
+   "country": "SE",
+   "country_name": "Suède",
+   "city": "Stockholm"
+  },
+  {
+   "id": "no-nasjonalmuseet",
+   "source": "wikidata",
+   "search": "Nasjonalmuseet for kunst, arkitektur og design",
+   "search_lang": "nb",
+   "country": "NO",
+   "country_name": "Norvège",
+   "city": "Oslo"
+  },
+  {
+   "id": "fi-ateneum",
+   "source": "wikidata",
+   "search": "Ateneum",
+   "search_lang": "fi",
+   "country": "FI",
+   "country_name": "Finlande",
+   "city": "Helsinki"
+  },
+  {
+   "id": "cz-ngp",
+   "source": "wikidata",
+   "search": "National Gallery Prague",
+   "search_lang": "en",
+   "country": "CZ",
+   "country_name": "Tchéquie",
+   "city": "Prague"
+  },
+  {
+   "id": "pl-mnw",
+   "source": "wikidata",
+   "search": "National Museum in Warsaw",
+   "search_lang": "en",
+   "country": "PL",
+   "country_name": "Pologne",
+   "city": "Varsovie"
+  },
+  {
+   "id": "pl-mnk",
+   "source": "wikidata",
+   "search": "National Museum in Kraków",
+   "search_lang": "en",
+   "country": "PL",
+   "country_name": "Pologne",
+   "city": "Cracovie"
+  },
+  {
+   "id": "hu-szepmuveszeti",
+   "source": "wikidata",
+   "search": "Museum of Fine Arts, Budapest",
+   "search_lang": "en",
+   "country": "HU",
+   "country_name": "Hongrie",
+   "city": "Budapest"
+  },
+  {
+   "id": "hu-mng",
+   "source": "wikidata",
+   "search": "Hungarian National Gallery",
+   "search_lang": "en",
+   "country": "HU",
+   "country_name": "Hongrie",
+   "city": "Budapest"
+  },
+  {
+   "id": "ro-mnar",
+   "source": "wikidata",
+   "search": "National Museum of Art of Romania",
+   "search_lang": "en",
+   "country": "RO",
+   "country_name": "Roumanie",
+   "city": "Bucarest"
+  },
+  {
+   "id": "es-thyssen",
+   "source": "wikidata",
+   "search": "Thyssen-Bornemisza Museum",
+   "search_lang": "es",
+   "country": "ES",
+   "country_name": "Espagne",
+   "city": "Madrid"
+  },
+  {
+   "id": "es-reinasofia",
+   "source": "wikidata",
+   "search": "Museo Reina Sofía",
+   "search_lang": "es",
+   "country": "ES",
+   "country_name": "Espagne",
+   "city": "Madrid"
+  },
+  {
+   "id": "es-mnac",
+   "source": "wikidata",
+   "search": "Museu Nacional d'Art de Catalunya",
+   "search_lang": "ca",
+   "country": "ES",
+   "country_name": "Espagne",
+   "city": "Barcelone"
+  },
+  {
+   "id": "es-bilbao",
+   "source": "wikidata",
+   "search": "Bilbao Fine Arts Museum",
+   "search_lang": "en",
+   "country": "ES",
+   "country_name": "Espagne",
+   "city": "Bilbao"
+  },
+  {
+   "id": "pt-mnaa",
+   "source": "wikidata",
+   "search": "Museu Nacional de Arte Antiga",
+   "search_lang": "pt",
+   "country": "PT",
+   "country_name": "Portugal",
+   "city": "Lisbonne"
+  },
+  {
+   "id": "pt-gulbenkian",
+   "source": "wikidata",
+   "search": "Calouste Gulbenkian Museum",
+   "search_lang": "en",
+   "country": "PT",
+   "country_name": "Portugal",
+   "city": "Lisbonne"
+  },
+  {
+   "id": "it-borghese",
+   "source": "wikidata",
+   "search": "Galleria Borghese",
+   "search_lang": "it",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Rome"
+  },
+  {
+   "id": "it-barberini",
+   "source": "wikidata",
+   "search": "Galleria Nazionale d'Arte Antica",
+   "search_lang": "it",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Rome"
+  },
+  {
+   "id": "it-vatican",
+   "source": "wikidata",
+   "search": "Vatican Museums",
+   "search_lang": "en",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Vatican"
+  },
+  {
+   "id": "it-brera",
+   "source": "wikidata",
+   "search": "Pinacoteca di Brera",
+   "search_lang": "it",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Milan"
+  },
+  {
+   "id": "it-accademia-venezia",
+   "source": "wikidata",
+   "search": "Gallerie dell'Accademia",
+   "search_lang": "it",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Venise"
+  },
+  {
+   "id": "it-capodimonte",
+   "source": "wikidata",
+   "search": "Museo di Capodimonte",
+   "search_lang": "it",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Naples"
+  },
+  {
+   "id": "it-pitti",
+   "source": "wikidata",
+   "search": "Palazzo Pitti",
+   "search_lang": "it",
+   "country": "IT",
+   "country_name": "Italie",
+   "city": "Florence"
+  },
+  {
+   "id": "de-dresden",
+   "source": "wikidata",
+   "search": "Gemäldegalerie Alte Meister",
+   "search_lang": "de",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Dresde"
+  },
+  {
+   "id": "de-staedel",
+   "source": "wikidata",
+   "search": "Städel Museum",
+   "search_lang": "de",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Francfort"
+  },
+  {
+   "id": "de-kunsthalle-hamburg",
+   "source": "wikidata",
+   "search": "Hamburger Kunsthalle",
+   "search_lang": "de",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Hambourg"
+  },
+  {
+   "id": "de-wallraf",
+   "source": "wikidata",
+   "search": "Wallraf-Richartz-Museum",
+   "search_lang": "de",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Cologne"
+  },
+  {
+   "id": "de-neuepinakothek",
+   "source": "wikidata",
+   "search": "Neue Pinakothek",
+   "search_lang": "de",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Munich"
+  },
+  {
+   "id": "de-staatsgalerie",
+   "source": "wikidata",
+   "search": "Staatsgalerie Stuttgart",
+   "search_lang": "de",
+   "country": "DE",
+   "country_name": "Allemagne",
+   "city": "Stuttgart"
+  },
+  {
+   "id": "be-groeninge",
+   "source": "wikidata",
+   "search": "Groeningemuseum",
+   "search_lang": "nl",
+   "country": "BE",
+   "country_name": "Belgique",
+   "city": "Bruges"
+  },
+  {
+   "id": "be-mskgent",
+   "source": "wikidata",
+   "search": "Museum voor Schone Kunsten Gent",
+   "search_lang": "nl",
+   "country": "BE",
+   "country_name": "Belgique",
+   "city": "Gand"
+  },
+  {
+   "id": "be-liege",
+   "source": "wikidata",
+   "search": "La Boverie",
+   "search_lang": "fr",
+   "country": "BE",
+   "country_name": "Belgique",
+   "city": "Liège"
+  },
+  {
+   "id": "nl-frans-hals",
+   "source": "wikidata",
+   "search": "Frans Hals Museum",
+   "search_lang": "nl",
+   "country": "NL",
+   "country_name": "Pays-Bas",
+   "city": "Haarlem"
+  },
+  {
+   "id": "nl-boijmans",
+   "source": "wikidata",
+   "search": "Museum Boijmans Van Beuningen",
+   "search_lang": "nl",
+   "country": "NL",
+   "country_name": "Pays-Bas",
+   "city": "Rotterdam"
+  },
+  {
+   "id": "nl-kroller",
+   "source": "wikidata",
+   "search": "Kröller-Müller Museum",
+   "search_lang": "nl",
+   "country": "NL",
+   "country_name": "Pays-Bas",
+   "city": "Otterlo"
+  },
+  {
+   "id": "fr-orangerie",
+   "source": "wikidata",
+   "search": "Musée de l'Orangerie",
+   "search_lang": "fr",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Paris"
+  },
+  {
+   "id": "fr-petitpalais",
+   "source": "wikidata",
+   "search": "Petit Palais",
+   "search_lang": "fr",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Paris"
+  },
+  {
+   "id": "fr-marmottan",
+   "source": "wikidata",
+   "search": "Musée Marmottan Monet",
+   "search_lang": "fr",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Paris"
+  },
+  {
+   "id": "fr-lyon",
+   "source": "wikidata",
+   "search": "Musée des Beaux-Arts de Lyon",
+   "search_lang": "fr",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Lyon"
+  },
+  {
+   "id": "fr-lille",
+   "source": "wikidata",
+   "search": "Palais des Beaux-Arts de Lille",
+   "search_lang": "fr",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Lille"
+  },
+  {
+   "id": "fr-chantilly",
+   "source": "wikidata",
+   "search": "Musée Condé",
+   "search_lang": "fr",
+   "country": "FR",
+   "country_name": "France",
+   "city": "Chantilly"
+  },
+  {
+   "id": "dk-glyptotek",
+   "source": "wikidata",
+   "search": "Ny Carlsberg Glyptotek",
+   "search_lang": "da",
+   "country": "DK",
+   "country_name": "Danemark",
+   "city": "Copenhague"
+  },
+  {
+   "id": "gr-ethniki",
+   "source": "wikidata",
+   "search": "National Gallery of Greece",
+   "search_lang": "en",
+   "country": "GR",
+   "country_name": "Grèce",
+   "city": "Athènes"
+  }
+ ]
 }

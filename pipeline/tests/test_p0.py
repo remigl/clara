@@ -379,3 +379,14 @@ def test_incremental_plan(tmp_path):
     assert catalog.plan(str(reg), "m", str(prev), force="a")["build"] == ["a", "b", "c"]
     assert catalog.plan(str(reg), "m", None)["build"] == ["a", "b", "c"]
     assert catalog.recipe(entries[0], "m") != catalog.recipe(entries[0], "autre-modèle")
+
+
+def test_article_themes():
+    from clara_p0.sources.knowledge import themed
+    text = ("Intro.\n\n== Historique ==\n" + "Commandé par le duc en 1503 pour sa chapelle privée, le tableau voyage ensuite. " * 3 +
+            "\n\n== Analyse ==\n=== Composition ===\n" + "La Vierge occupe le centre, la lumière vient de gauche et éclaire. " * 3 +
+            "\n\n== Postérité ==\n" + "Volé en 1911, il fut retrouvé deux ans plus tard à Florence chez un vitrier. " * 3 +
+            "\n\n== Références ==\n" + "x " * 100)
+    th = themed(text, "art")
+    assert set(th) == {"Contexte et histoire", "À observer", "Anecdotes"}
+    assert "Volé" in th["Anecdotes"] and "Références" not in "".join(th.values())

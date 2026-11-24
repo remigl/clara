@@ -236,17 +236,29 @@ Le contexte améliore la précision (moins de tableaux qui se ressemblent), la v
 
 ## 7. Fonctionnalités et données utilisateur
 
-Toutes hors ligne, dans `user.db` :
-- **Ma collection** : grille par musée, tri par date de découverte ou par artiste.
-- **Progression** : `œuvres collectionnées comptables / number_of_works`, par musée, par collection et, au niveau 3, par salle.
-- **Fiches** : métadonnées du pack, vignette si les droits le permettent, sinon la photo de l'utilisateur.
+Toutes hors ligne, dans `user.db` (dossier de support de l'app) :
+- **Ma collection** (`collected`) : grille par musée, progression `œuvres comptables collectionnées / number_of_works`.
+- **Favoris** (`favorite`) : section « Favoris » en tête de la collection dès le premier favori, ajout/retrait depuis la fiche.
+- **Photos personnelles** (`photo` + fichiers `photos/<horodatage>.jpg`) : la photo du scan est liée à l'œuvre confirmée ;
+  la fiche et les vignettes montrent la plus récente, l'image du musée reste accessible ; appui long pour supprimer.
+- **Notes personnelles** (`user_note`) : sous l'image de la fiche, enregistrées automatiquement pendant la saisie.
+- **Fiche à deux niveaux** : *L'œuvre* (en bref, description, à observer, contexte et histoire, anecdotes, iconographie,
+  provenance, expositions, pour comprendre) et *L'artiste* (biographie, style et mouvements, œuvres principales,
+  du même artiste ici, anecdotes). Textes longs repliés (« Lire la suite »). Balayage horizontal entre les œuvres de la liste d'origine.
+- **Wildcards** : œuvres au hasard dans des musées au hasard (packs installés), les 500 dernières tirées ne reviennent pas.
 - **Recherche** : FTS5 sur titre, artiste, description, insensible aux accents.
-- **Favoris, notes, historique.**
-- **Ajout manuel** depuis la recherche (`via = 'manual'`), distingué des scans dans les statistiques.
-- **Export/import** de `user.db` (fichier local) pour changer de téléphone sans compte ni serveur.
-- Les photos de scan sont **facultatives** : par défaut on ne garde que la vignette rectifiée, purgeable à tout moment.
+- **Ajout manuel** (`via = 'manual'` / `'wildcard'`), distingué des scans dans les statistiques.
 
----
+### 7.1 Préparation des fonctions communautaires (non implémentées)
+
+Rien n'est envoyé : l'app reste 100 % locale. Le modèle est seulement prêt pour une future couche communautaire facultative :
+- **Identifiants stables** : une œuvre = `musée:inventaire_normalisé`, identique sur tous les téléphones et entre versions de packs.
+  Une note ou un « j'aime » pourra être rattaché à ce même identifiant côté serveur.
+- **Notes** : `user_note.uuid` (identifiant global de la note), `visibility` (`private` par défaut ; `public` plus tard, sur choix explicite),
+  `created_at` / `updated_at` pour une synchronisation par dernière modification.
+- **Likes** : table future `like(artwork_id, created_at, synced_at)`, même clé.
+- **Lecture des notes publiques** : à télécharger comme un pack (fichier par musée, signé, mis en cache), jamais exigé pour scanner.
+- Les photos personnelles ne quittent jamais l'appareil.
 
 ## 8. Pipeline de build (hors appareil)
 

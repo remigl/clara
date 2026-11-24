@@ -94,6 +94,7 @@ CREATOR_PROPS = {
     "teachers": "wdt:P1066",
     "students": "wdt:P802",
     "occupations": "wdt:P106",
+    "notable_works": "wdt:P800",
 }
 ICONCLASS_QUERY = """
 SELECT ?item ?code WHERE {{ VALUES ?item {{ {values} }} ?item wdt:P1257 ?code . }}
@@ -172,6 +173,10 @@ SELECT DISTINCT ?m WHERE {{
 """
 
 
+MUSEUM_WORDS = ("museum", "musée", "museo", "gallery", "galerie", "galleria", "galería", "pinacot",
+                "kunsthalle", "kunsthaus", "collection", "kunstmuseum", "museu")
+
+
 def resolve_qid(search: str, lang: str = "de", retries: int = 4) -> str:
     """Identifiant Wikidata d'un musée d'après son nom : API de recherche, puis requête SPARQL sur les libellés
     (l'API de recherche limite fortement les robots quand plusieurs constructions tournent)."""
@@ -180,9 +185,12 @@ def resolve_qid(search: str, lang: str = "de", retries: int = 4) -> str:
         try:
             r = requests.get("https://www.wikidata.org/w/api.php",
                              params={"action": "wbsearchentities", "search": search, "language": lang, "type": "item",
-                                     "limit": 1, "format": "json"}, headers={"User-Agent": UA}, timeout=30)
+                                     "limit": 7, "format": "json"}, headers={"User-Agent": UA}, timeout=30)
             if r.status_code == 200 and "error" not in r.json():
                 hits = r.json().get("search") or []
+                # préférer un résultat décrit comme un musée (évite l'homonyme : bâtiment, gare, personne…)
+                museums = [h for h in hits if any(k in (h.get("description") or "").lower() for k in MUSEUM_WORDS)]
+                hits = museums or hits
                 if hits:
                     print(f"  Wikidata : « {search} » -> {hits[0]['id']} ({hits[0].get('label')}, "
                           f"{hits[0].get('description')})")
@@ -415,6 +423,16 @@ def select(raw, museum_id: str, pd_years: int = 70, summaries: dict | None = Non
             sections.append(("Expositions", [("", v) for v in _labels(p["Expositions"])[:12]]))
         a.sections = sections
 
+        # articles complets : description, contexte, à observer, anecdotes (en tête des sections)
+        ath = know.get("art_themes", {}).get(qid)
+        if ath:
+            credit = ("Source", f"Texte : Wikipédia ({ath[1]}), licence CC BY-SA 4.0")
+            order = ["Description", "À observer", "Contexte et histoire", "Anecdotes"]
+            a.sections = [(k, [("", ath[0][k]), credit]) for k in order if ath[0].get(k)] + a.sections
+        depicts = _labels(p["Sujets représentés"])
+        if depicts and not (ath and ath[0].get("À observer")):
+            a.sections.insert(0, ("À observer", [("", "Dans ce tableau, on peut repérer : " + ", ".join(depicts[:12]) + ".")]))
+
         # texte de présentation
         t = art_txt.get(qid)
         if t:
@@ -434,6 +452,13 @@ def select(raw, museum_id: str, pd_years: int = 70, summaries: dict | None = Non
             a.artist_teachers = ", ".join(_labels(c.get("teachers"))[:6]) or None
             a.artist_students = ", ".join(_labels(c.get("students"))[:6]) or None
             a.artist_occupations = ", ".join(_labels(c.get("occupations"))[:4]) or None
+            a.artist_notable_works = ", ".join(_labels(c.get("notable_works"))[:8]) or None
+        cth = know.get("creator_themes", {}).get(creator_q)
+        if cth:
+            credit = f"Texte : Wikipédia ({cth[1]}), licence CC BY-SA 4.0"
+            a.artist_style = cth[0].get("Style")
+            a.artist_anecdotes = cth[0].get("Anecdotes")
+            a.artist_extra_credit = credit
         ct = creator_txt.get(creator_q)
         if ct:
             a.artist_bio = ct[0]
@@ -463,7 +488,8 @@ def enrich_by_inventory(artworks: list[Artwork], raw: dict, know: dict, museum_i
         n += 1
         a.wikidata_qid = w.wikidata_qid
         for f in ("artist_qid", "artist_bio", "artist_bio_credit", "artist_birth_place", "artist_death_place",
-                  "artist_movements", "artist_teachers", "artist_students", "artist_occupations"):
+                  "artist_movements", "artist_teachers", "artist_students", "artist_occupations",
+                  "artist_notable_works", "artist_style", "artist_anecdotes", "artist_extra_credit"):
             if getattr(a, f, None) in (None, "") and getattr(w, f, None):
                 setattr(a, f, getattr(w, f))
         have = {k for k, _ in a.facts}
